@@ -4,10 +4,10 @@ Actually own music for the same price as streaming.
 
 OwnMusic is an open-source proof of concept for a fairer way to pay for music:
 
-- **1p per play**, billed monthly, **capped at £15 a month**. After 1,500 plays everything is free until next month.
-- **User-centric payouts.** Your money goes only to the artists you played. Nothing is pooled and split by market share.
-- **Artists get 90%** of what their listeners pay, for plays and for copies.
-- **Numbered copies, like a CD.** Buy copy #1, #2, #3… of a track. There's no limit and no resale; each copy belongs to one person, and owning a copy makes that track free to play.
+- **Buy once, own it.** Pay a one-off price for a track, like buying a single or a download, then play it as often as you like, streamed from anywhere. No subscription, no per-play charges.
+- **Numbered copies, like a CD.** Every purchase gets the next number: copy #1, #2, #3… There's no limit and no resale; each copy belongs to one person.
+- **Try before you buy.** Anyone can hear a 30-second preview.
+- **Artists get 90%** of every sale, and your money only goes to the artists you chose to buy. Nothing is pooled and split by market share.
 - **A real artist behind every release.** Only verified artists can upload. AI is treated like sampling: allowed, but credited.
 
 It is a demo of the model, not a business. There is no real money, only a basic name-and-password sign-in, and no blockchain yet.
@@ -29,7 +29,7 @@ Then, to release music:
    (or `curl -X POST localhost:3000/api/admin/verify -H "x-admin-token: pick-a-secret" -H "content-type: application/json" -d '{"name":"Your Artist Name"}'`).
 3. Reload **For artists** and upload tracks.
 
-Sign in as a second user in another browser to listen as a fan. **My bill** shows where each penny went, and **Artist payouts** shows the 90/10 split.
+Sign in as a second user in another browser to preview, buy and play as a fan. **My purchases** shows what each sale paid the artist, and **Artist payouts** shows the 90/10 split.
 
 ## How the money works
 
@@ -37,12 +37,12 @@ All of the rules live in [`src/money.ts`](src/money.ts) and are covered by tests
 
 | Rule | Where |
 | --- | --- |
-| A play counts after 30 seconds of listening, checked against the server clock | `countPlay` |
-| Each counted play costs 1p, unless you own a copy or have hit the £15 cap | `countPlay` |
-| Copies are numbered in order, one per person, unlimited | `buyCopy` |
-| Each artist gets 90% of their monthly total (plays + copies), rounded down once | `payoutsForMonth` |
+| Buying a track gives you the next numbered copy, one per person, unlimited copies | `buyCopy` |
+| Owners play for free as often as they like (plays are only logged for counts) | `logPlay` |
+| Each artist gets 90% of their monthly sales, rounded down once | `payoutsForMonth` |
+| Non-owners get a 30-second preview | `PREVIEW_SECONDS`, enforced by the player |
 
-Because every charge is attached to the track that was played, payouts are user-centric by construction. If one fan plays only your music, all of their spend goes to you, however much other people stream other artists.
+Artists set each track's price when they upload it (default 99p).
 
 ## Stack
 
@@ -52,7 +52,8 @@ Data lives in `./data` (set `DATA_DIR` to move it): the SQLite database and the 
 
 ## Not built yet
 
-- Real payments (Stripe: monthly invoice in arrears for plays, checkout for copies) and real artist payouts.
+- Real payments (Stripe Checkout for each purchase) and real artist payouts.
+- Server-side preview clips. Today the player stops non-owners at 30 seconds, but the full file can still be fetched.
 - Real accounts and artist identity checks.
 - Minting each numbered copy as a non-transferable NFT, so fans keep proof of ownership (and a download) even if the service shuts down. The fan should never have to see crypto.
 - Owner communities around each track.

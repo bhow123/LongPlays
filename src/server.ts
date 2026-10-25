@@ -5,8 +5,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { openDb, AUDIO_DIR } from "./db.js";
 import {
-  startPlay, countPlay, buyCopy, payoutsForMonth, listenerStatement, monthlySpend, monthOf,
-  MONTHLY_CAP_PENCE, PRICE_PER_PLAY_PENCE, MIN_SECONDS_FOR_PLAY, ARTIST_SHARE,
+  buyCopy, logPlay, ownsCopy, payoutsForMonth, listenerStatement, monthOf,
+  ARTIST_SHARE, DEFAULT_PRICE_PENCE, PREVIEW_SECONDS,
 } from "./money.js";
 
 const db = openDb();
@@ -44,7 +44,7 @@ const artistFor = (userId: number) =>
     | undefined;
 
 app.get("/api/config", (_req, res) =>
-  res.json({ pricePerPlay: PRICE_PER_PLAY_PENCE, monthlyCap: MONTHLY_CAP_PENCE, minSeconds: MIN_SECONDS_FOR_PLAY, artistShare: ARTIST_SHARE }),
+  res.json({ defaultPrice: DEFAULT_PRICE_PENCE, previewSeconds: PREVIEW_SECONDS, artistShare: ARTIST_SHARE }),
 );
 
 app.post("/api/login", (req, res) => {
@@ -68,8 +68,7 @@ app.post("/api/logout", (_req, res) => res.clearCookie("uid").json({ ok: true })
 
 app.get("/api/me", auth, (req, res) => {
   const { user } = req as Authed;
-  const month = monthOf(new Date());
-  res.json({ ...user, artist: artistFor(user.id) ?? null, month, spend: monthlySpend(db, user.id, month) });
+  res.json({ ...user, artist: artistFor(user.id) ?? null });
 });
 
 app.get("/api/tracks", (req, res) => {
@@ -78,7 +77,7 @@ app.get("/api/tracks", (req, res) => {
     .prepare(
       `SELECT t.id, t.title, t.credits, t.copy_price_pence AS copyPrice, a.name AS artist, a.id AS artistId,
               (SELECT COUNT(*) FROM copies c WHERE c.track_id = t.id) AS copiesSold,
-              (SELECT COUNT(*) FROM plays p WHERE p.track_id = t.id AND p.counted_at IS NOT NULL) AS plays,
+              (SELECT COUNT(*) FROM plays p WHERE p.track_id = t.id) AS plays,
               (SELECT number FROM copies c WHERE c.track_id = t.id AND c.owner_id = ?) AS myCopy
        FROM tracks t JOIN artists a ON a.id = t.artist_id
        WHERE a.verified = 1 ORDER BY t.created_at DESC`,
@@ -95,14 +94,15 @@ app.get("/api/tracks/:id/audio", auth, (req, res) => {
   res.sendFile(path.join(AUDIO_DIR, t.audio_file));
 });
 
+// Anyone can hear a preview; the player stops non-owners after PREVIEW_SECONDS.
+// (A real service would serve a separate preview clip so the full file isn't exposed.)
 app.post("/api/tracks/:id/plays", auth, (req, res) => {
+  const { user } = req as Authed;
   const trackId = Number(req.params.id);
   if (!db.prepare(`SELECT 1 FROM tracks WHERE id = ?`).get(trackId)) return res.sendStatus(404);
-  res.json({ playId: startPlay(db, (req as Authed).user.id, trackId) });
-});
-
-app.post("/api/plays/:id/count", auth, (req, res) => {
-  res.json(countPlay(db, (req as Authed).user.id, Number(req.params.id)));
+  const owned = ownsCopy(db, user.id, trackId);
+  if (owned) logPlay(db, user.id, trackId);
+  res.json({ owned, previewSeconds: owned ? null : PREVIEW_SECONDS });
 });
 
 app.post("/api/tracks/:id/copies", auth, (req, res) => {
@@ -173,7 +173,8 @@ app.post("/api/artist/tracks", auth, upload.single("audio"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "audio file required" });
   const title = String(req.body.title ?? "").trim().slice(0, 120) || req.file.originalname;
   const credits = String(req.body.credits ?? "").slice(0, 1000);
-  const price = Math.max(0, Math.round(Number(req.body.copyPrice ?? 1) * 100));
+  const pounds = Number(req.body.copyPrice || NaN);
+  const price = Number.isFinite(pounds) && pounds >= 0 ? Math.round(pounds * 100) : DEFAULT_PRICE_PENCE;
   const r = db
     .prepare(`INSERT INTO tracks (artist_id, title, credits, audio_file, copy_price_pence) VALUES (?, ?, ?, ?, ?)`)
     .run(artist.id, title, credits, req.file.filename, price);

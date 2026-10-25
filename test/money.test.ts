@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "../src/db.js";
-import { startPlay, countPlay, buyCopy, payoutsForMonth, listenerStatement, MONTHLY_CAP_PENCE } from "../src/money.js";
+import { buyCopy, logPlay, ownsCopy, payoutsForMonth, listenerStatement } from "../src/money.js";
 
 function setup() {
   const db = openDb(":memory:");
@@ -10,7 +10,7 @@ function setup() {
     const uid = user(name);
     return Number(db.prepare(`INSERT INTO artists (user_id, name, verified) VALUES (?, ?, 1)`).run(uid, name).lastInsertRowid);
   };
-  const track = (artistId: number, price = 100) =>
+  const track = (artistId: number, price = 99) =>
     Number(
       db.prepare(`INSERT INTO tracks (artist_id, title, audio_file, copy_price_pence) VALUES (?, 't', 'x.mp3', ?)`)
         .run(artistId, price).lastInsertRowid,
@@ -19,41 +19,6 @@ function setup() {
 }
 
 const t0 = new Date("2026-10-10T12:00:00Z");
-const later = (s: number, from = t0) => new Date(from.getTime() + s * 1000);
-
-function listen(db: ReturnType<typeof openDb>, userId: number, trackId: number, at = t0) {
-  const id = startPlay(db, userId, trackId, at);
-  return countPlay(db, userId, id, later(31, at));
-}
-
-test("a play under 30 seconds is not counted or charged", () => {
-  const { db, user, artist, track } = setup();
-  const u = user("fan"), tr = track(artist("Ben"));
-  const id = startPlay(db, u, tr, t0);
-  assert.deepEqual(countPlay(db, u, id, later(10)), { counted: false, reason: "too_soon" });
-  const r = countPlay(db, u, id, later(30));
-  assert.equal(r.counted && r.charged, 1);
-  assert.deepEqual(countPlay(db, u, id, later(60)), { counted: false, reason: "already_counted" });
-});
-
-test("spend stops at the £15 monthly cap and resets next month", () => {
-  const { db, user, artist, track } = setup();
-  const u = user("fan"), tr = track(artist("Ben"));
-  for (let i = 0; i < MONTHLY_CAP_PENCE; i++) listen(db, u, tr);
-  const over = listen(db, u, tr);
-  assert.ok(over.counted && over.charged === 0 && over.why === "cap_reached");
-  assert.equal(listenerStatement(db, u, "2026-10").playCharges, 1500);
-  const nextMonth = listen(db, u, tr, new Date("2026-11-01T00:00:00Z"));
-  assert.ok(nextMonth.counted && nextMonth.charged === 1);
-});
-
-test("owning a copy makes plays of that track free", () => {
-  const { db, user, artist, track } = setup();
-  const u = user("fan"), tr = track(artist("Ben"));
-  buyCopy(db, u, tr, t0);
-  const r = listen(db, u, tr);
-  assert.ok(r.counted && r.charged === 0 && r.why === "owns_copy");
-});
 
 test("copies are numbered in order, unlimited, and one per person", () => {
   const { db, user, artist, track } = setup();
@@ -61,34 +26,47 @@ test("copies are numbered in order, unlimited, and one per person", () => {
   const fans = ["a", "b", "c"].map(user);
   assert.deepEqual(fans.map((f) => buyCopy(db, f, tr, t0).number), [1, 2, 3]);
   assert.deepEqual(buyCopy(db, fans[0], tr, t0), { number: 1, alreadyOwned: true });
+  assert.ok(ownsCopy(db, fans[0], tr));
 });
 
-test("payouts are user-centric: a listener's money only reaches artists they played", () => {
+test("buying again never charges twice, and plays never cost anything", () => {
+  const { db, user, artist, track } = setup();
+  const fan = user("fan"), tr = track(artist("Ben"), 99);
+  buyCopy(db, fan, tr, t0);
+  buyCopy(db, fan, tr, t0);
+  for (let i = 0; i < 1000; i++) logPlay(db, fan, tr, t0);
+  assert.equal(listenerStatement(db, fan, "2026-10").total, 99);
+  assert.equal(payoutsForMonth(db, "2026-10")[0].gross, 99);
+});
+
+test("a fan's money only reaches the artists whose tracks they bought", () => {
   const { db, user, artist, track } = setup();
   const ben = artist("Ben"), other = artist("Other");
-  const benTrack = track(ben), otherTrack = track(other);
-  const heavy = user("heavy"), light = user("light");
-  // Heavy listener maxes out on Other; light listener plays Ben 10 times.
-  for (let i = 0; i < 2000; i++) listen(db, heavy, otherTrack);
-  for (let i = 0; i < 10; i++) listen(db, light, benTrack);
+  const benTrack = track(ben, 99), otherTrack = track(other, 150);
+  const fan = user("fan");
+  buyCopy(db, fan, benTrack, t0);
+  for (const f of ["x", "y", "z"].map(user)) buyCopy(db, f, otherTrack, t0);
   const p = Object.fromEntries(payoutsForMonth(db, "2026-10").map((r) => [r.artist, r]));
-  // Pro-rata would hand Ben a sliver of the pool; user-centric gives him all of the light listener's 10p.
-  assert.equal(p.Ben.playRevenue, 10);
-  assert.equal(p.Ben.artistPayout, 9);
-  assert.equal(p.Other.playRevenue, 1500);
-  assert.equal(p.Other.artistPayout, 1350);
+  assert.deepEqual([p.Ben.copiesSold, p.Ben.buyers, p.Ben.gross], [1, 1, 99]);
+  assert.deepEqual([p.Other.copiesSold, p.Other.buyers, p.Other.gross], [3, 3, 450]);
 });
 
 test("artist gets 90% of the monthly total, rounded down once", () => {
   const { db, user, artist, track } = setup();
-  const ben = artist("Ben");
-  const tr = track(ben, 150);
-  buyCopy(db, user("a"), tr, t0);
-  for (let i = 0; i < 5; i++) listen(db, user(`p${i}`), tr);
+  const tr = track(artist("Ben"), 99);
+  for (let i = 0; i < 5; i++) buyCopy(db, user(`f${i}`), tr, t0);
   const [p] = payoutsForMonth(db, "2026-10");
-  assert.equal(p.copyRevenue, 150);
-  assert.equal(p.playRevenue, 5);
-  // 90% of 155p is 139.5p: the artist gets 139p and the platform 16p.
-  assert.equal(p.artistPayout, 139);
-  assert.equal(p.platformFee, 16);
+  // 90% of 495p is 445.5p: the artist gets 445p and the platform 50p.
+  assert.equal(p.gross, 495);
+  assert.equal(p.artistPayout, 445);
+  assert.equal(p.platformFee, 50);
+});
+
+test("sales are reported in the month they happened", () => {
+  const { db, user, artist, track } = setup();
+  const tr = track(artist("Ben"), 99);
+  buyCopy(db, user("oct"), tr, t0);
+  buyCopy(db, user("nov"), tr, new Date("2026-11-02T09:00:00Z"));
+  assert.equal(payoutsForMonth(db, "2026-10")[0].copiesSold, 1);
+  assert.equal(payoutsForMonth(db, "2026-11")[0].copiesSold, 1);
 });

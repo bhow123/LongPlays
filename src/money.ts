@@ -1,61 +1,21 @@
 import type { DB } from "./db.js";
 
-export const PRICE_PER_PLAY_PENCE = 1;
-export const MONTHLY_CAP_PENCE = 1500;
+export const DEFAULT_PRICE_PENCE = 99;
 export const ARTIST_SHARE = 0.9;
-export const MIN_SECONDS_FOR_PLAY = 30;
+export const PREVIEW_SECONDS = 30;
 
 export const monthOf = (d: Date) => d.toISOString().slice(0, 7);
 
-export function monthlySpend(db: DB, userId: number, month: string): number {
-  const row = db
-    .prepare(`SELECT COALESCE(SUM(charged_pence), 0) AS p FROM plays WHERE user_id = ? AND month = ?`)
-    .get(userId, month) as { p: number };
-  return row.p;
-}
+// Integer maths so 90% of 99p is exactly 89p, never 89.0999...
+const artistCut = (pence: number) => Math.floor((pence * Math.round(ARTIST_SHARE * 100)) / 100);
 
 export function ownsCopy(db: DB, userId: number, trackId: number): boolean {
   return !!db.prepare(`SELECT 1 FROM copies WHERE owner_id = ? AND track_id = ?`).get(userId, trackId);
 }
 
-export function startPlay(db: DB, userId: number, trackId: number, now = new Date()): number {
-  const r = db
-    .prepare(`INSERT INTO plays (user_id, track_id, started_at) VALUES (?, ?, ?)`)
-    .run(userId, trackId, now.toISOString());
-  return Number(r.lastInsertRowid);
-}
-
-export type CountResult =
-  | { counted: false; reason: "too_soon" | "already_counted" | "not_found" }
-  | { counted: true; charged: number; why: "charged" | "owns_copy" | "cap_reached"; spend: number };
-
-/** Count a play once 30s have passed (by server clock) and charge 1p unless free. */
-export function countPlay(db: DB, userId: number, playId: number, now = new Date()): CountResult {
-  return db.transaction((): CountResult => {
-    const play = db.prepare(`SELECT * FROM plays WHERE id = ? AND user_id = ?`).get(playId, userId) as
-      | { track_id: number; started_at: string; counted_at: string | null }
-      | undefined;
-    if (!play) return { counted: false, reason: "not_found" };
-    if (play.counted_at) return { counted: false, reason: "already_counted" };
-    const elapsed = (now.getTime() - new Date(play.started_at).getTime()) / 1000;
-    if (elapsed < MIN_SECONDS_FOR_PLAY) return { counted: false, reason: "too_soon" };
-
-    const month = monthOf(now);
-    const spend = monthlySpend(db, userId, month);
-    let charged = 0;
-    let why: "charged" | "owns_copy" | "cap_reached" = "charged";
-    if (ownsCopy(db, userId, play.track_id)) why = "owns_copy";
-    else if (spend + PRICE_PER_PLAY_PENCE > MONTHLY_CAP_PENCE) why = "cap_reached";
-    else charged = PRICE_PER_PLAY_PENCE;
-
-    db.prepare(`UPDATE plays SET counted_at = ?, month = ?, charged_pence = ? WHERE id = ?`).run(
-      now.toISOString(),
-      month,
-      charged,
-      playId,
-    );
-    return { counted: true, charged, why, spend: spend + charged };
-  })();
+/** Owners play as often as they like; each play is logged for the play count, never charged. */
+export function logPlay(db: DB, userId: number, trackId: number, now = new Date()) {
+  db.prepare(`INSERT INTO plays (user_id, track_id, started_at) VALUES (?, ?, ?)`).run(userId, trackId, now.toISOString());
 }
 
 /** Buy the next numbered copy of a track. Returns the copy number (e.g. 3 for "A.3"). */
@@ -79,93 +39,48 @@ export function buyCopy(db: DB, userId: number, trackId: number, now = new Date(
   })();
 }
 
-// Integer maths so 90% of 10p is exactly 9p, never 8.999...
-const artistCut = (pence: number) => Math.floor((pence * Math.round(ARTIST_SHARE * 100)) / 100);
-
 export type ArtistPayout = {
   artistId: number;
   artist: string;
-  playRevenue: number;
-  copyRevenue: number;
+  copiesSold: number;
+  buyers: number;
   gross: number;
   artistPayout: number;
   platformFee: number;
-  listeners: number;
 };
 
 /**
- * User-centric payouts: each listener's play money goes only to the artists they
- * played, because every charge is tied to a track. The 90% is taken from each artist's
- * monthly total and rounded down once, so the platform keeps under 1p of rounding per artist.
+ * Each sale belongs to the artist whose track was bought, so a fan's money only
+ * ever reaches artists they chose. The 90% is taken from each artist's monthly
+ * total and rounded down once, so the platform keeps under 1p of rounding per artist.
  */
 export function payoutsForMonth(db: DB, month: string): ArtistPayout[] {
-  const playRows = db
+  const rows = db
     .prepare(
-      `SELECT a.id AS artistId, a.name AS artist, p.user_id AS userId, SUM(p.charged_pence) AS pence
-       FROM plays p JOIN tracks t ON t.id = p.track_id JOIN artists a ON a.id = t.artist_id
-       WHERE p.month = ? AND p.charged_pence > 0
-       GROUP BY a.id, p.user_id`,
-    )
-    .all(month) as { artistId: number; artist: string; userId: number; pence: number }[];
-  const copyRows = db
-    .prepare(
-      `SELECT a.id AS artistId, a.name AS artist, c.owner_id AS userId, SUM(c.price_pence) AS pence
+      `SELECT a.id AS artistId, a.name AS artist, COUNT(*) AS copiesSold,
+              COUNT(DISTINCT c.owner_id) AS buyers, SUM(c.price_pence) AS gross
        FROM copies c JOIN tracks t ON t.id = c.track_id JOIN artists a ON a.id = t.artist_id
-       WHERE c.month = ? GROUP BY a.id, c.owner_id`,
+       WHERE c.month = ? GROUP BY a.id ORDER BY gross DESC`,
     )
-    .all(month) as { artistId: number; artist: string; userId: number; pence: number }[];
-
-  const out = new Map<number, ArtistPayout & { _listeners: Set<number> }>();
-  const get = (artistId: number, artist: string) => {
-    let p = out.get(artistId);
-    if (!p) {
-      p = { artistId, artist, playRevenue: 0, copyRevenue: 0, gross: 0, artistPayout: 0, platformFee: 0, listeners: 0, _listeners: new Set() };
-      out.set(artistId, p);
-    }
-    return p;
-  };
-  for (const r of playRows) {
-    const p = get(r.artistId, r.artist);
-    p.playRevenue += r.pence;
-    p._listeners.add(r.userId);
-  }
-  for (const r of copyRows) {
-    const p = get(r.artistId, r.artist);
-    p.copyRevenue += r.pence;
-  }
-  return [...out.values()].map(({ _listeners, ...p }) => {
-    p.gross = p.playRevenue + p.copyRevenue;
-    p.artistPayout = artistCut(p.gross);
-    p.platformFee = p.gross - p.artistPayout;
-    p.listeners = _listeners.size;
-    return p;
+    .all(month) as Omit<ArtistPayout, "artistPayout" | "platformFee">[];
+  return rows.map((r) => {
+    const artistPayout = artistCut(r.gross);
+    return { ...r, artistPayout, platformFee: r.gross - artistPayout };
   });
 }
 
-/** What a listener owes for a month, and where every penny of it goes. */
+/** What a fan bought in a month, and how much of each purchase went to the artist. */
 export function listenerStatement(db: DB, userId: number, month: string) {
-  const byArtist = db
+  const purchases = db
     .prepare(
-      `SELECT a.name AS artist, COUNT(*) AS plays, SUM(p.charged_pence) AS pence
-       FROM plays p JOIN tracks t ON t.id = p.track_id JOIN artists a ON a.id = t.artist_id
-       WHERE p.user_id = ? AND p.month = ? GROUP BY a.id ORDER BY pence DESC`,
-    )
-    .all(userId, month) as { artist: string; plays: number; pence: number }[];
-  const copies = db
-    .prepare(
-      `SELECT t.title, c.number, c.price_pence AS pence, a.name AS artist
+      `SELECT t.title, a.name AS artist, c.number, c.price_pence AS pence
        FROM copies c JOIN tracks t ON t.id = c.track_id JOIN artists a ON a.id = t.artist_id
-       WHERE c.owner_id = ? AND c.month = ?`,
+       WHERE c.owner_id = ? AND c.month = ? ORDER BY c.created_at`,
     )
-    .all(userId, month) as { title: string; number: number; pence: number; artist: string }[];
-  const plays = byArtist.reduce((s, r) => s + r.pence, 0);
+    .all(userId, month) as { title: string; artist: string; number: number; pence: number }[];
   return {
     month,
-    playCharges: plays,
-    capPence: MONTHLY_CAP_PENCE,
-    capReached: plays >= MONTHLY_CAP_PENCE,
-    copyPurchases: copies.reduce((s, c) => s + c.pence, 0),
-    byArtist: byArtist.map((r) => ({ ...r, toArtist: r.pence * ARTIST_SHARE })),
-    copies,
+    total: purchases.reduce((s, p) => s + p.pence, 0),
+    purchases: purchases.map((p) => ({ ...p, toArtist: p.pence * ARTIST_SHARE })),
   };
 }

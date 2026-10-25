@@ -31,11 +31,12 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic.db")) {
       title TEXT NOT NULL,
       credits TEXT NOT NULL DEFAULT '',
       audio_file TEXT NOT NULL,
-      copy_price_pence INTEGER NOT NULL DEFAULT 100,
+      copy_price_pence INTEGER NOT NULL DEFAULT 99,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
-    -- One row per listen. charged_pence is 0 until the play passes 30 seconds,
-    -- and stays 0 if the listener owns a copy or has hit the monthly cap.
+    -- A log of owners' listens, for play counts. Plays are never charged:
+    -- you pay once for a copy. (counted_at, month and charged_pence are unused
+    -- leftovers from the earlier pay-per-play version.)
     CREATE TABLE IF NOT EXISTS plays (
       id INTEGER PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -46,7 +47,7 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic.db")) {
       charged_pence INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS plays_user_month ON plays(user_id, month);
-    -- Numbered copies: the "digital CD". Unlimited, never resold, one owner each.
+    -- Numbered copies: the "digital CD". Bought once, unlimited plays, never resold, one per owner.
     CREATE TABLE IF NOT EXISTS copies (
       id INTEGER PRIMARY KEY,
       track_id INTEGER NOT NULL REFERENCES tracks(id),

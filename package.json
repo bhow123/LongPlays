@@ -1,7 +1,7 @@
 {
   "name": "ownmusic",
   "version": "1.0.0",
-  "description": "Open-source proof of concept: pay 1p per play, capped at £15/month, with 90% going to the artists you actually listened to.",
+  "description": "Open-source proof of concept: buy a track once, own a numbered copy, play it forever, with 90% going to the artist.",
   "scripts": {
     "start": "tsx src/server.ts",
     "dev": "tsx watch src/server.ts",

@@ -48,31 +48,22 @@ function show(tab) {
   ({ listen, copies, statement, payouts, artist })[tab]();
 }
 
-async function meter() {
-  me = await api("/api/me");
-  const pct = Math.min(100, (me.spend / config.monthlyCap) * 100);
-  $("#meter").innerHTML = `
-    <div class="muted">This month: <strong>${gbp(me.spend)}</strong> of ${gbp(config.monthlyCap)} cap
-    ${me.spend >= config.monthlyCap ? `<span class="ok">· everything is free until next month</span>` : ""}</div>
-    <div class="bar"><div style="width:${pct}%"></div></div>`;
-}
-
 async function listen() {
-  await meter();
   const tracks = await api("/api/tracks");
   $("#tracks").innerHTML = tracks.length
     ? tracks.map((t) => `
       <li class="card">
         <div>
           <h3>${esc(t.title)}</h3>
-          <div class="muted">${esc(t.artist)} · ${t.plays} plays · ${t.copiesSold} copies owned</div>
+          <div class="muted">${esc(t.artist)} · ${t.copiesSold} ${t.copiesSold === 1 ? "copy" : "copies"} owned · ${t.plays} ${t.plays === 1 ? "play" : "plays"}</div>
           ${t.credits ? `<div class="muted">${esc(t.credits)}</div>` : ""}
         </div>
         <div>
-          <button data-play="${t.id}" data-title="${esc(t.title)}" data-artist="${esc(t.artist)}">Play</button>
           ${t.myCopy
-            ? `<span class="copy-no" title="Your copy">#${t.myCopy}</span>`
-            : `<button class="ghost" data-buy="${t.id}">Own copy #${t.copiesSold + 1} · ${gbp(t.copyPrice)}</button>`}
+            ? `<button data-play="${t.id}" data-title="${esc(t.title)}" data-artist="${esc(t.artist)}">Play</button>
+               <span class="copy-no" title="Your copy">#${t.myCopy}</span>`
+            : `<button class="ghost" data-play="${t.id}" data-title="${esc(t.title)}" data-artist="${esc(t.artist)}">Preview</button>
+               <button data-buy="${t.id}">Buy copy #${t.copiesSold + 1} · ${gbp(t.copyPrice)}</button>`}
         </div>
       </li>`).join("")
     : `<li class="muted">No tracks yet. Verified artists can upload from "For artists".</li>`;
@@ -84,42 +75,33 @@ $("#tracks").addEventListener("click", async (e) => {
   if (b.dataset.play) play(b.dataset.play, b.dataset.title, b.dataset.artist);
   if (b.dataset.buy) {
     const r = await api(`/api/tracks/${b.dataset.buy}/copies`, { method: "POST" });
-    alert(`You own copy #${r.number}. Plays of this track are now free for you.`);
+    alert(`You own copy #${r.number}. Play it as often as you like.`);
     listen();
   }
 });
 
-// Player: a play counts (and costs 1p) after 30 seconds of actual listening.
+// Player: owners hear the whole track; everyone else gets a preview.
 const audio = $("#audio");
-let current = null;
+let previewLimit = null;
 
 async function play(trackId, title, artist) {
-  const { playId } = await api(`/api/tracks/${trackId}/plays`, { method: "POST" });
-  current = { playId, listened: 0, last: null, counted: false };
+  const r = await api(`/api/tracks/${trackId}/plays`, { method: "POST" });
+  previewLimit = r.previewSeconds;
   $("#player").hidden = false;
   $("#now-title").textContent = title;
   $("#now-artist").textContent = artist;
-  $("#play-status").textContent = `Counts as a play after ${config.minSeconds}s`;
+  $("#play-status").textContent = r.owned ? "Your copy: unlimited plays" : `${r.previewSeconds}-second preview. Buy a copy to hear it all.`;
   audio.src = `/api/tracks/${trackId}/audio`;
   audio.play();
 }
 
-audio.addEventListener("timeupdate", async () => {
-  if (!current || current.counted) return;
-  const t = audio.currentTime;
-  if (current.last !== null && t > current.last && t - current.last < 2) current.listened += t - current.last;
-  current.last = t;
-  if (current.listened < config.minSeconds) return;
-  current.counted = true;
-  const r = await api(`/api/plays/${current.playId}/count`, { method: "POST" });
-  if (!r.counted && r.reason === "too_soon") { current.counted = false; return; }
-  $("#play-status").innerHTML = !r.counted ? "" :
-    r.why === "charged" ? `Play counted · 1p to the artist's pot` :
-    r.why === "owns_copy" ? `<span class="ok">Free: you own a copy</span>` :
-    `<span class="ok">Free: you've hit this month's cap</span>`;
-  if (!$("[data-panel=listen]").hidden) meter();
+audio.addEventListener("timeupdate", () => {
+  if (previewLimit !== null && audio.currentTime >= previewLimit) {
+    audio.pause();
+    audio.currentTime = 0;
+    $("#play-status").textContent = "End of preview. Buy a copy to hear the whole track.";
+  }
 });
-audio.addEventListener("seeking", () => current && (current.last = null));
 
 async function copies() {
   const rows = await api("/api/copies/mine");
@@ -130,7 +112,7 @@ async function copies() {
         <div class="muted">${esc(c.artist)} · owned since ${esc(c.createdAt.slice(0, 10))}</div></div>
         <button class="ghost" data-owners="${c.trackId}">Fellow owners</button>
       </li>`).join("")
-    : `<li class="muted">You don't own any copies yet. Each one is numbered, belongs only to you, and makes that track free to play.</li>`;
+    : `<li class="muted">You don't own any copies yet. Each one is numbered, belongs only to you, and is yours to play forever.</li>`;
 }
 
 $("#copies").addEventListener("click", async (e) => {
@@ -143,14 +125,14 @@ $("#copies").addEventListener("click", async (e) => {
 async function statement() {
   const s = await api("/api/statement");
   $("#statement").innerHTML = `
-    <h2>Your bill for ${esc(s.month)}</h2>
-    <p>Plays: <strong>${gbp(s.playCharges)}</strong> (capped at ${gbp(s.capPence)}) · Copies bought: <strong>${gbp(s.copyPurchases)}</strong></p>
+    <h2>Your purchases in ${esc(s.month)}</h2>
+    <p>Total: <strong>${gbp(s.total)}</strong></p>
     <table>
-      <tr><th>Artist</th><th class="n">Plays</th><th class="n">You pay</th><th class="n">Artist gets</th></tr>
-      ${s.byArtist.map((r) => `<tr><td>${esc(r.artist)}</td><td class="n">${r.plays}</td><td class="n">${gbp(r.pence)}</td><td class="n">${`£${(r.toArtist / 100).toFixed(3)}`}</td></tr>`).join("")
-        || `<tr><td colspan="4" class="muted">No plays yet this month.</td></tr>`}
+      <tr><th>Track</th><th>Artist</th><th class="n">Copy</th><th class="n">You paid</th><th class="n">Artist gets</th></tr>
+      ${s.purchases.map((r) => `<tr><td>${esc(r.title)}</td><td>${esc(r.artist)}</td><td class="n">#${r.number}</td><td class="n">${gbp(r.pence)}</td><td class="n">${gbp(r.toArtist)}</td></tr>`).join("")
+        || `<tr><td colspan="5" class="muted">Nothing bought yet this month.</td></tr>`}
     </table>
-    <p class="muted">Your money only goes to artists you played. Nothing is pooled.</p>`;
+    <p class="muted">You pay once per track. Every play after that is free, for good.</p>`;
 }
 
 async function payouts() {
@@ -158,9 +140,9 @@ async function payouts() {
   $("#payouts").innerHTML = `
     <h2>Artist payouts for ${esc(p.month)}</h2>
     <table>
-      <tr><th>Artist</th><th class="n">Listeners</th><th class="n">Plays</th><th class="n">Copies</th><th class="n">To artist (${p.artistShare * 100}%)</th><th class="n">Platform</th></tr>
-      ${p.payouts.map((r) => `<tr><td>${esc(r.artist)}</td><td class="n">${r.listeners}</td><td class="n">${gbp(r.playRevenue)}</td><td class="n">${gbp(r.copyRevenue)}</td><td class="n"><strong>${gbp(r.artistPayout)}</strong></td><td class="n">${gbp(r.platformFee)}</td></tr>`).join("")
-        || `<tr><td colspan="6" class="muted">No revenue yet this month.</td></tr>`}
+      <tr><th>Artist</th><th class="n">Copies sold</th><th class="n">Buyers</th><th class="n">Sales</th><th class="n">To artist (${p.artistShare * 100}%)</th><th class="n">Platform</th></tr>
+      ${p.payouts.map((r) => `<tr><td>${esc(r.artist)}</td><td class="n">${r.copiesSold}</td><td class="n">${r.buyers}</td><td class="n">${gbp(r.gross)}</td><td class="n"><strong>${gbp(r.artistPayout)}</strong></td><td class="n">${gbp(r.platformFee)}</td></tr>`).join("")
+        || `<tr><td colspan="6" class="muted">No sales yet this month.</td></tr>`}
     </table>`;
 }
 
@@ -179,7 +161,7 @@ async function artist() {
       <form id="upload-form">
         <label>Title <input name="title" required /></label>
         <label>Credits <input name="credits" placeholder="Written by…, produced by…, samples / AI tools used…" /></label>
-        <label>Price of a numbered copy (£) <input name="copyPrice" type="number" step="0.01" min="0" value="1.00" /></label>
+        <label>Price to own a copy (£) <input name="copyPrice" type="number" step="0.01" min="0" value="${(config.defaultPrice / 100).toFixed(2)}" /></label>
         <label>Audio file <input name="audio" type="file" accept="audio/*" required /></label>
         <button>Upload</button> <span id="upload-status" class="muted"></span>
       </form>` : ""}`;
