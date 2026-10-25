@@ -8,6 +8,7 @@ import {
   buyAlbum, subscribe, cancelSubscription, renewSubscription, accountSummary, logPlay, ownsAlbum,
   payoutsForMonth, monthOf, ALBUM_PRICE_PENCE, SUBSCRIPTION_PENCE, CREDITS_PER_MONTH, ARTIST_SHARE, PREVIEW_SECONDS, VAT_RATE, artistCut,
 } from "./money.js";
+import { addPost, myRooms, ownersAlsoOwn, roomFeed, roomTeaser, shelf } from "./community.js";
 
 const db = openDb();
 const app = express();
@@ -137,6 +138,39 @@ app.get("/api/albums/:id/owners", (req, res) => {
       .all(Number(req.params.id)),
   );
 });
+
+// Community: shelves, owners' rooms and discovery.
+app.get("/api/fans/:name", (req, res) => {
+  const s = shelf(db, String(req.params.name));
+  if (!s) return res.status(404).json({ error: "no fan with that name" });
+  res.json(s);
+});
+
+app.get("/api/albums/:id/also", (req, res) => res.json(ownersAlsoOwn(db, Number(req.params.id))));
+
+app.get("/api/albums/:id/room", auth, (req, res) => {
+  const albumId = Number(req.params.id);
+  const feed = roomFeed(db, (req as Authed).user.id, albumId);
+  if (!feed) return res.status(403).json({ error: "own a copy to join this room", teaser: roomTeaser(db, albumId) });
+  res.json(feed);
+});
+
+app.post("/api/albums/:id/room", auth, (req, res) => {
+  try {
+    const { body, kind, maxNumber, startsAt } = req.body ?? {};
+    const id = addPost(db, (req as Authed).user.id, Number(req.params.id), {
+      body: String(body ?? ""),
+      kind: kind === "perk" || kind === "party" ? kind : "post",
+      maxNumber: maxNumber ? Number(maxNumber) : null,
+      startsAt: startsAt ? String(startsAt) : null,
+    });
+    res.json({ id });
+  } catch (e) {
+    res.status(400).json({ error: (e as Error).message });
+  }
+});
+
+app.get("/api/rooms", auth, (req, res) => res.json(myRooms(db, (req as Authed).user.id)));
 
 app.get("/api/account", auth, (req, res) => res.json(accountSummary(db, (req as Authed).user.id)));
 app.post("/api/subscription", auth, (req, res) => {

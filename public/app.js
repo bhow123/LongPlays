@@ -75,13 +75,14 @@ async function refreshAccount() {
   account = await api("/api/account");
   $("#who").innerHTML = `
     <span class="chip" title="Album credits"><span class="dot"></span>${plural(account.credits, "credit")}</span>
-    <button class="avatar" id="logout" title="Signed in as ${esc(me.name)}. Click to sign out.">${esc(me.name.slice(0, 1).toUpperCase())}</button>`;
-  $("#logout").addEventListener("click", async () => {
-    if (!confirm(`Sign out ${me.name}?`)) return;
-    await api("/api/logout", { method: "POST" });
-    location.hash = "";
-    location.reload();
-  });
+    <a class="avatar" href="#fan/${encodeURIComponent(me.name)}" title="Your record shelf">${esc(me.name.slice(0, 1).toUpperCase())}</a>`;
+}
+
+async function signOut() {
+  if (!confirm(`Sign out ${me.name}?`)) return;
+  await api("/api/logout", { method: "POST" });
+  history.replaceState(null, "", "/");
+  location.reload();
 }
 
 $("#login-form").addEventListener("submit", async (e) => {
@@ -102,14 +103,32 @@ document.addEventListener("click", (e) => {
   if (goto) { closeSheet(); show(goto); }
 });
 
-const views = { albums, collection, plan, payouts, artist };
+const views = { albums, collection, community, plan, payouts, artist };
 function show(tab) {
+  closeSheet();
+  if (tab.startsWith("fan/")) {
+    history.replaceState(null, "", `#${tab}`);
+    document.querySelectorAll("#tabs button").forEach((b) => b.classList.remove("on"));
+    document.querySelectorAll("[data-panel]").forEach((p) => (p.hidden = p.dataset.panel !== "shelf"));
+    return shelfView(decodeURIComponent(tab.slice(4)));
+  }
   if (!views[tab]) tab = "albums";
   history.replaceState(null, "", `#${tab}`);
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
   document.querySelectorAll("[data-panel]").forEach((p) => (p.hidden = p.dataset.panel !== tab));
+  window.scrollTo({ top: 0 });
   views[tab]();
 }
+window.addEventListener("hashchange", () => me && show(location.hash.slice(1)));
+const fanLink = (name, label = name) => `<a class="fan-link" href="#fan/${encodeURIComponent(name)}">${esc(label)}</a>`;
+const timeAgo = (iso) => {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+};
+const whenParty = (iso) => new Date(iso).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 /* ---------- Albums ---------- */
 
@@ -154,10 +173,11 @@ $("#albums").addEventListener("click", (e) => {
   if (id) openAlbum(Number(id));
 });
 
-async function openAlbum(id) {
-  const a = catalogue.find((x) => x.id === id) ?? (await api("/api/albums")).find((x) => x.id === id);
+async function openAlbum(id, pane = "tracks") {
+  if (!catalogue.some((x) => x.id === id)) catalogue = await api("/api/albums");
+  const a = catalogue.find((x) => x.id === id);
   if (!a) return;
-  const owners = await api(`/api/albums/${id}/owners`);
+  const [owners, also] = await Promise.all([api(`/api/albums/${id}/owners`), api(`/api/albums/${id}/also`)]);
   const nowPlayingHere = current && a.tracks.some((t) => t.id === current.trackId) && !audio.paused;
   $("#sheet-content").innerHTML = `
     <div class="album-hero ${nowPlayingHere ? "spinning" : ""}" id="hero">
@@ -178,6 +198,12 @@ async function openAlbum(id) {
         </div>
       </div>
     </div>
+    <div class="seg" role="tablist">
+      <button data-pane="tracks" class="${pane === "tracks" ? "on" : ""}">Tracks</button>
+      <button data-pane="room" class="${pane === "room" ? "on" : ""}">Owners' room ${a.myCopy ? "" : "🔒"}</button>
+    </div>
+    <div data-pane-body="room" ${pane === "room" ? "" : "hidden"}><div id="room"></div></div>
+    <div data-pane-body="tracks" ${pane === "tracks" ? "" : "hidden"}>
     <ol class="tracklist">
       ${a.tracks.map((t) => `
         <li data-track-row="${t.id}" class="${current?.trackId === t.id ? "playing" : ""}">
@@ -189,13 +215,111 @@ async function openAlbum(id) {
     ${a.credits ? `<div class="credits-note"><strong>Credits</strong>\n${esc(a.credits)}</div>` : ""}
     <div style="margin-top:22px">
       <p class="eyebrow">Copy owners</p>
-      <div class="owner-list">${owners.length ? owners.map((o) => `<span>${copyNo(o.number)} ${esc(o.name)}</span>`).join("") : `<span>No owners yet. Be ${copyNo(1)}.</span>`}</div>
+      <div class="owner-list">${owners.length ? owners.map((o) => `<a href="#fan/${encodeURIComponent(o.name)}">${copyNo(o.number)} ${esc(o.name)}</a>`).join("") : `<span>No owners yet. Be ${copyNo(1)}.</span>`}</div>
+    </div>
+    ${also.length ? `
+    <div style="margin-top:26px">
+      <p class="eyebrow">Owners of this album also own</p>
+      <div class="also-row">${also.map((x) => `
+        <button class="also" data-open="${x.id}">
+          ${cover(x.id, x.title, x.hasCover)}
+          <strong>${esc(x.title)}</strong><span class="muted">${esc(x.artist)}</span>
+          <span class="owners">${plural(x.sharedOwners, "shared owner")}</span>
+        </button>`).join("")}</div>
+    </div>` : ""}
     </div>`;
   const wasOpen = !$("#sheet").hidden && $("#sheet").dataset.album === String(id);
   $("#sheet").hidden = false;
   $("#sheet").dataset.album = id;
   if (!wasOpen) $(".sheet-body").scrollTop = 0;
   document.body.style.overflow = "hidden";
+  if (pane === "room") loadRoom(a);
+}
+
+function switchPane(pane) {
+  document.querySelectorAll(".seg [data-pane]").forEach((b) => b.classList.toggle("on", b.dataset.pane === pane));
+  document.querySelectorAll("[data-pane-body]").forEach((d) => (d.hidden = d.dataset.paneBody !== pane));
+  if (pane === "room") loadRoom(catalogue.find((x) => x.id === Number($("#sheet").dataset.album)));
+}
+
+/* ---------- Owners' room ---------- */
+
+async function loadRoom(a) {
+  const el = $("#room");
+  el.innerHTML = `<p class="muted">Opening the room…</p>`;
+  const res = await fetch(`/api/albums/${a.id}/room`);
+  const data = await res.json();
+  if (res.status === 403) {
+    const t = data.teaser;
+    el.innerHTML = `
+      <div class="room-door">
+        <div class="lock">🔒</div>
+        <h3>The owners' room for ${esc(a.title)}</h3>
+        <p class="muted">Only people who own a copy can read and post here, so it's real fans, no bots.</p>
+        <div class="door-stats">
+          <span><strong>${t.owners}</strong> owners inside</span>
+          <span><strong>${t.posts}</strong> posts</span>
+          <span><strong>${t.perks}</strong> owner perks</span>
+        </div>
+        ${t.nextParty ? `<p class="party-teaser">🎧 Listening party ${esc(whenParty(t.nextParty))}</p>` : ""}
+        <button class="btn btn-primary" data-buy="${a.id}">Own copy ${copyNo(a.copiesSold + 1)} to get in</button>
+      </div>`;
+    return;
+  }
+  const room = data;
+  el.innerHTML = `
+    <form id="composer" class="composer">
+      <div class="composer-who">
+        ${room.isArtist ? `<span class="badge own">Artist</span>` : `<span class="badge own">${copyNo(room.myNumber)}</span>`}
+        <span class="muted small">Posting as ${esc(room.isArtist ? a.artist : me.name)}</span>
+      </div>
+      ${room.isArtist ? `
+        <div class="kind-pick" role="radiogroup">
+          <label><input type="radio" name="kind" value="post" checked /> Post</label>
+          <label><input type="radio" name="kind" value="perk" /> 🎁 Owner perk</label>
+          <label><input type="radio" name="kind" value="party" /> 🎧 Listening party</label>
+        </div>
+        <div class="kind-extra" data-for="perk" hidden><label>Only for copies up to # <input name="maxNumber" type="number" min="1" placeholder="Leave empty for every owner" /></label></div>
+        <div class="kind-extra" data-for="party" hidden><label>Starts <input name="startsAt" type="datetime-local" /></label></div>` : ""}
+      <textarea name="body" rows="2" maxlength="2000" required placeholder="${room.isArtist ? "Say something to everyone who owns this album…" : "Say something to the other owners…"}"></textarea>
+      <button class="btn btn-primary btn-small">Post</button>
+    </form>
+    <ul class="feed">${room.posts.length ? room.posts.map(postCard).join("") : `<li class="muted empty">Nobody's said anything yet. Start it off.</li>`}</ul>`;
+  const form = $("#composer");
+  form.addEventListener("change", () => {
+    const kind = form.kind?.value ?? "post";
+    form.querySelectorAll(".kind-extra").forEach((d) => (d.hidden = d.dataset.for !== kind));
+  });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = new FormData(form);
+    const startsAt = f.get("startsAt");
+    try {
+      await api(`/api/albums/${a.id}/room`, {
+        method: "POST",
+        body: { body: f.get("body"), kind: f.get("kind") ?? "post", maxNumber: f.get("maxNumber") || null, startsAt: startsAt ? new Date(startsAt).toISOString() : null },
+      });
+      loadRoom(a);
+    } catch (err) { toast(err.message); }
+  });
+}
+
+function postCard(p) {
+  const who = p.byArtist
+    ? `<strong>${esc(p.author)}</strong> <span class="badge own">Artist</span>`
+    : `${fanLink(p.author)} <span class="badge">${copyNo(p.authorNumber)}</span>`;
+  if (p.kind === "perk")
+    return `<li class="post perk ${p.locked ? "locked" : ""}">
+      <div class="post-head"><span class="perk-icon">🎁</span> Owner perk${p.maxNumber ? ` · copies ${copyNo(1)}–${copyNo(p.maxNumber)}` : ""} <span class="muted small">· ${timeAgo(p.createdAt)}</span></div>
+      <p>${p.locked ? `🔒 For the first ${p.maxNumber} owners. Low numbers get rewarded.` : esc(p.body)}</p></li>`;
+  if (p.kind === "party") {
+    const d = new Date(p.startsAt);
+    return `<li class="post party">
+      <div class="party-date"><span>${d.toLocaleDateString("en-GB", { month: "short" })}</span><strong>${d.getDate()}</strong></div>
+      <div><div class="post-head">🎧 Listening party · ${esc(whenParty(p.startsAt))}</div><p>${esc(p.body)}</p>
+      <span class="muted small">Hosted by ${esc(p.author)}</span></div></li>`;
+  }
+  return `<li class="post"><div class="post-head">${who} <span class="muted small">· ${timeAgo(p.createdAt)}</span></div><p>${esc(p.body)}</p></li>`;
 }
 
 function closeSheet() {
@@ -207,6 +331,8 @@ $("#sheet").addEventListener("click", async (e) => {
   const b = e.target.closest("button");
   if (!b) return;
   const album = catalogue.find((x) => x.id === Number($("#sheet").dataset.album));
+  if (b.dataset.pane) return switchPane(b.dataset.pane);
+  if (b.dataset.open) return openAlbum(Number(b.dataset.open));
   if (b.dataset.play) play(Number(b.dataset.play), album);
   if (b.dataset.buy) {
     b.disabled = true;
@@ -215,7 +341,7 @@ $("#sheet").addEventListener("click", async (e) => {
       toast(`You own ${copyNo(r.number)} of ${album.title}${r.paidWith === "credit" ? " · 1 credit used" : ` · ${gbp(config.albumPrice)}`}`);
       await refreshAccount();
       await albums();
-      openAlbum(album.id);
+      openAlbum(album.id, $(".seg .on")?.dataset.pane ?? "tracks");
     } catch (err) { toast(err.message); b.disabled = false; }
   }
 });
@@ -281,6 +407,7 @@ async function collection() {
   $("#collection").innerHTML = `
     <div class="section-head">
       <div><h2>My collection</h2><p>${p.length ? `${plural(p.length, "album")}, numbered and yours to keep.` : ""}</p></div>
+      <a class="btn" href="#fan/${encodeURIComponent(me.name)}">View my record shelf</a>
     </div>
     ${p.length
       ? `<div class="certs">${p.map((c) => `
@@ -300,6 +427,93 @@ $("#collection").addEventListener("click", async (e) => {
   if (!id) return;
   catalogue = await api("/api/albums");
   openAlbum(Number(id));
+});
+
+/* ---------- Community ---------- */
+
+const shelfRows = (records, perRow) => {
+  const rows = [];
+  for (let i = 0; i < records.length; i += perRow) rows.push(records.slice(i, i + perRow));
+  return rows;
+};
+const shelfHtml = (records, perRow) =>
+  shelfRows(records, perRow).map((row) => `
+    <div class="shelf-row" style="--per:${perRow}">
+      ${row.map((r, i) => `
+        <button class="shelf-item" data-open-album="${r.albumId}" style="--tilt:${[-2, 1, -1, 2, 0][(r.albumId + i) % 5]}deg" title="${esc(r.title)} · ${esc(r.artist)}">
+          ${cover(r.albumId, r.title, r.hasCover)}
+          <span class="stamp">${copyNo(r.number)}</span>
+        </button>`).join("")}
+    </div>`).join("");
+const perRow = () => (innerWidth < 520 ? 3 : innerWidth < 900 ? 4 : 6);
+
+async function community() {
+  const [rooms, mine] = await Promise.all([api("/api/rooms"), api(`/api/fans/${encodeURIComponent(me.name)}`)]);
+  $("#community").innerHTML = `
+    <div class="section-head">
+      <div><h2>Community</h2><p>Every album has an owners' room. Only people with a numbered copy get in, so it's real fans talking to each other and to the artist.</p></div>
+    </div>
+    <div class="panel shelf-preview">
+      <div class="section-head" style="margin-bottom:8px">
+        <div><p class="eyebrow">Your record shelf</p><h3>${plural(mine.records.length, "record")} · ${plural(mine.supported.length, "artist")} backed</h3></div>
+        <a class="btn" href="#fan/${encodeURIComponent(me.name)}">Open shelf</a>
+      </div>
+      ${mine.records.length ? shelfHtml(mine.records.slice(0, perRow()), perRow()) : `<p class="muted">Your shelf fills up as you buy albums. Friends can browse it.</p>`}
+    </div>
+    <h2 style="margin:30px 0 12px">Your rooms</h2>
+    ${rooms.length ? `<ul class="room-list">${rooms.map((r) => `
+      <li><button class="room-row" data-room="${r.albumId}">
+        ${cover(r.albumId, r.title, r.hasCover)}
+        <div class="room-meta">
+          <div><strong>${esc(r.title)}</strong> <span class="muted">· ${esc(r.artist)}</span></div>
+          <div class="muted small room-last">${r.lastBody ? `“${esc(r.lastBody.slice(0, 90))}”` : "Quiet so far. Say hello."}</div>
+          <div class="owners">${plural(r.owners, "owner")} · ${plural(r.posts, "post")}${r.lastAt ? ` · ${timeAgo(r.lastAt)}` : ""}</div>
+        </div>
+        <span class="badge own">${r.isArtist ? "Artist" : copyNo(r.myNumber)}</span>
+      </button></li>`).join("")}</ul>`
+      : `<div class="empty">Own an album to get into its owners' room. <br /><br /><button class="btn btn-primary" data-goto="albums">Browse albums</button></div>`}`;
+}
+$("#community").addEventListener("click", (e) => {
+  const room = e.target.closest("[data-room]")?.dataset.room;
+  if (room) openAlbum(Number(room), "room");
+});
+
+async function shelfView(name) {
+  const el = $("#shelf");
+  el.innerHTML = `<p class="muted">Loading shelf…</p>`;
+  let f;
+  try { f = await api(`/api/fans/${encodeURIComponent(name)}`); }
+  catch { el.innerHTML = `<div class="empty">No fan called ${esc(name)}.</div>`; return; }
+  const isMe = f.name === me.name;
+  el.innerHTML = `
+    <div class="profile">
+      <div class="profile-avatar">${esc(f.name.slice(0, 1).toUpperCase())}</div>
+      <div>
+        <p class="eyebrow">${isMe ? "Your record shelf" : "Record shelf"}</p>
+        <h2>${esc(f.name)}</h2>
+        <p class="muted">Collecting since ${esc(monthName(f.joined.slice(0, 7)))}${f.artistName ? ` · releases music as <strong>${esc(f.artistName)}</strong>` : ""}</p>
+      </div>
+      ${isMe ? `<div class="profile-actions"><button class="btn btn-small" id="share-shelf">Copy link</button><button class="btn btn-small" id="signout">Sign out</button></div>` : ""}
+    </div>
+    <div class="stat-grid">
+      <div class="stat"><strong>${f.records.length}</strong><span>records</span></div>
+      <div class="stat"><strong>${f.supported.length}</strong><span>artists backed</span></div>
+      <div class="stat"><strong>${f.records.length ? copyNo(Math.min(...f.records.map((r) => r.number))) : "–"}</strong><span>lowest copy number</span></div>
+      <div class="stat"><strong>${gbp(f.records.length * config.artistPerAlbum)}</strong><span>sent to artists</span></div>
+    </div>
+    <div class="shelf">${f.records.length ? shelfHtml(f.records, perRow()) : `<div class="empty">${isMe ? "Your shelf is empty. Every album you buy stands here with its copy number." : "Nothing on this shelf yet."}</div>`}</div>
+    ${f.supported.length ? `
+      <h2 style="margin:30px 0 4px">Backing</h2>
+      <ul class="rows">${f.supported.map((s) => `<li><span>${esc(isMe ? "You've" : `${f.name} has`)} bought ${plural(s.albums, "album")} from <strong>${esc(s.artist)}</strong></span><span class="r">${gbp(s.albums * config.artistPerAlbum)} to them</span></li>`).join("")}</ul>` : ""}`;
+  $("#signout")?.addEventListener("click", signOut);
+  $("#share-shelf")?.addEventListener("click", async () => {
+    const url = `${location.origin}/#fan/${encodeURIComponent(f.name)}`;
+    try { await navigator.clipboard.writeText(url); toast("Shelf link copied"); } catch { prompt("Your shelf link", url); }
+  });
+}
+document.addEventListener("click", (e) => {
+  const id = e.target.closest?.("[data-open-album]")?.dataset.openAlbum;
+  if (id) openAlbum(Number(id));
 });
 
 /* ---------- Plan ---------- */

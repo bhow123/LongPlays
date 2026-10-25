@@ -78,6 +78,19 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic-v2.db")) {
       reason TEXT NOT NULL,
       month TEXT NOT NULL
     );
+    -- Owners' rooms: one feed per album. Only copy owners and the album's artist can read or post.
+    -- Artists can also post perks (optionally only for copies up to max_number) and listening parties.
+    CREATE TABLE IF NOT EXISTS posts (
+      id INTEGER PRIMARY KEY,
+      album_id INTEGER NOT NULL REFERENCES albums(id),
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      kind TEXT NOT NULL DEFAULT 'post' CHECK (kind IN ('post', 'perk', 'party')),
+      body TEXT NOT NULL,
+      max_number INTEGER,
+      starts_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    CREATE INDEX IF NOT EXISTS posts_album ON posts(album_id, id);
     -- Money in: subscription fees and extra album purchases.
     CREATE TABLE IF NOT EXISTS payments (
       id INTEGER PRIMARY KEY,
