@@ -7,6 +7,8 @@ export const ARTIST_SHARE = 0.9;
 /** UK VAT. Prices include it; the artist's 90% is of the price after VAT. */
 export const VAT_RATE = 0.2;
 export const PREVIEW_SECONDS = 30;
+/** Songwriting/publishing share of the VAT-free price, like the UK MCPS download rate. */
+export const DEFAULT_PUBLISHING_PERCENT = 8;
 
 export const monthOf = (d: Date) => d.toISOString().slice(0, 7);
 
@@ -124,6 +126,19 @@ export function buyAlbum(db: DB, userId: number, albumId: number, now = new Date
   })();
 }
 
+/**
+ * The rights holders' share (90% of net) splits two ways: songwriting/publishing takes
+ * publishingPercent of the net price, and the recording (master) owner gets the rest.
+ * Whatever the split, the two always add up to artistCut.
+ */
+export function splitRights(pence: number, publishingPercent = DEFAULT_PUBLISHING_PERCENT) {
+  const rights = artistCut(pence);
+  const publishing = Math.min(rights, Math.floor((netOfVat(pence) * publishingPercent) / 100));
+  return { recording: rights - publishing, publishing };
+}
+
+export type RightsHolderPayout = { name: string; role: "recording" | "songwriting"; amount: number };
+
 export function logPlay(db: DB, userId: number, trackId: number, now = new Date()) {
   db.prepare(`INSERT INTO plays (user_id, track_id, played_at) VALUES (?, ?, ?)`).run(userId, trackId, now.toISOString());
 }
@@ -138,6 +153,8 @@ export type ArtistPayout = {
   vat: number;
   net: number;
   artistPayout: number;
+  recordingPayout: number;
+  publishingPayout: number;
   platformFee: number;
 };
 
@@ -149,16 +166,28 @@ export type ArtistPayout = {
 export function payoutsForMonth(db: DB, month: string) {
   const copies = db
     .prepare(
-      `SELECT ar.id AS artistId, ar.name AS artist, c.paid_with AS paidWith, c.value_pence AS value
+      `SELECT ar.id AS artistId, ar.name AS artist, c.paid_with AS paidWith, c.value_pence AS value,
+              COALESCE(al.master_holder, ar.name) AS masterHolder, COALESCE(al.publisher, ar.name) AS publisher,
+              al.publishing_percent AS publishingPercent
        FROM copies c JOIN albums al ON al.id = c.album_id JOIN artists ar ON ar.id = al.artist_id
        WHERE c.month = ? AND c.value_pence > 0 ORDER BY ar.id`,
     )
-    .all(month) as { artistId: number; artist: string; paidWith: "credit" | "cash"; value: number }[];
+    .all(month) as {
+      artistId: number; artist: string; paidWith: "credit" | "cash"; value: number;
+      masterHolder: string; publisher: string; publishingPercent: number;
+    }[];
   const byArtist = new Map<number, ArtistPayout>();
+  const holders = new Map<string, RightsHolderPayout>();
+  const credit = (name: string, role: RightsHolderPayout["role"], amount: number) => {
+    const key = `${role}\n${name}`;
+    const h = holders.get(key) ?? { name, role, amount: 0 };
+    h.amount += amount;
+    holders.set(key, h);
+  };
   for (const c of copies) {
     let p = byArtist.get(c.artistId);
     if (!p) {
-      p = { artistId: c.artistId, artist: c.artist, copiesSold: 0, viaCredit: 0, viaCash: 0, gross: 0, vat: 0, net: 0, artistPayout: 0, platformFee: 0 };
+      p = { artistId: c.artistId, artist: c.artist, copiesSold: 0, viaCredit: 0, viaCash: 0, gross: 0, vat: 0, net: 0, artistPayout: 0, recordingPayout: 0, publishingPayout: 0, platformFee: 0 };
       byArtist.set(c.artistId, p);
     }
     const net = netOfVat(c.value);
@@ -170,12 +199,18 @@ export function payoutsForMonth(db: DB, month: string) {
     p.vat += c.value - net;
     p.net += net;
     p.artistPayout += toArtist;
+    const split = splitRights(c.value, c.publishingPercent);
+    p.recordingPayout += split.recording;
+    p.publishingPayout += split.publishing;
+    credit(c.masterHolder, "recording", split.recording);
+    credit(c.publisher, "songwriting", split.publishing);
     p.platformFee += net - toArtist;
   }
   const payouts = [...byArtist.values()].sort((a, b) => b.gross - a.gross);
   const moneyIn = (db.prepare(`SELECT COALESCE(SUM(amount_pence), 0) AS p FROM payments WHERE month <= ?`).get(month) as { p: number }).p;
   const spent = (db.prepare(`SELECT COALESCE(SUM(value_pence), 0) AS p FROM copies WHERE month <= ?`).get(month) as { p: number }).p;
-  return { month, payouts, heldForUnspentCredits: moneyIn - spent };
+  const rightsHolders = [...holders.values()].sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name));
+  return { month, payouts, rightsHolders, heldForUnspentCredits: moneyIn - spent };
 }
 
 /** A fan's plan, credits and purchase history. */

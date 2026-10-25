@@ -7,6 +7,7 @@ import { openDb, AUDIO_DIR } from "./db.js";
 import {
   buyAlbum, subscribe, cancelSubscription, renewSubscription, accountSummary, logPlay, ownsAlbum,
   payoutsForMonth, monthOf, ALBUM_PRICE_PENCE, SUBSCRIPTION_PENCE, CREDITS_PER_MONTH, ARTIST_SHARE, PREVIEW_SECONDS, VAT_RATE, artistCut,
+  DEFAULT_PUBLISHING_PERCENT, splitRights,
 } from "./money.js";
 import { seedDemo } from "./demo.js";
 import { addPost, myRooms, ownersAlsoOwn, roomFeed, roomTeaser, shelf } from "./community.js";
@@ -52,6 +53,8 @@ app.get("/api/config", (_req, res) =>
     albumPrice: ALBUM_PRICE_PENCE, subscription: SUBSCRIPTION_PENCE, creditsPerMonth: CREDITS_PER_MONTH,
     previewSeconds: PREVIEW_SECONDS, artistShare: ARTIST_SHARE, vatRate: VAT_RATE,
     artistPerAlbum: artistCut(ALBUM_PRICE_PENCE),
+    defaultPublishingPercent: DEFAULT_PUBLISHING_PERCENT,
+    defaultSplit: splitRights(ALBUM_PRICE_PENCE),
   }),
 );
 
@@ -86,16 +89,18 @@ app.get("/api/albums", (req, res) => {
       `SELECT al.id, al.title, al.credits, ar.name AS artist, ar.bio AS artistBio, al.cover_file IS NOT NULL AS hasCover,
               (SELECT COUNT(*) FROM copies c WHERE c.album_id = al.id) AS copiesSold,
               (SELECT number FROM copies c WHERE c.album_id = al.id AND c.owner_id = ?) AS myCopy,
-              (ar.user_id = ?) AS isMine, ar.demo
+              (ar.user_id = ?) AS isMine, ar.demo,
+              COALESCE(al.master_holder, ar.name) AS masterHolder, COALESCE(al.publisher, ar.name) AS publisher,
+              al.publishing_percent AS publishingPercent
        FROM albums al JOIN artists ar ON ar.id = al.artist_id
        WHERE ar.verified = 1 ORDER BY al.created_at DESC, al.id DESC`,
     )
-    .all(uid, uid) as { id: number }[];
+    .all(uid, uid) as { id: number; publishingPercent: number }[];
   const tracks = db.prepare(
     `SELECT t.id, t.title, t.position, (SELECT COUNT(*) FROM plays p WHERE p.track_id = t.id) AS plays
      FROM tracks t WHERE t.album_id = ? ORDER BY t.position`,
   );
-  res.json(albums.map((a) => ({ ...a, tracks: tracks.all(a.id) })));
+  res.json(albums.map((a) => ({ ...a, split: splitRights(ALBUM_PRICE_PENCE, a.publishingPercent), tracks: tracks.all(a.id) })));
 });
 
 app.get("/api/albums/:id/cover", (req, res) => {
@@ -232,12 +237,18 @@ app.post("/api/artist/albums", auth, albumUpload, (req, res) => {
   const title = String(req.body.title ?? "").trim().slice(0, 120);
   if (!title) return res.status(400).json({ error: "album title required" });
   const credits = String(req.body.credits ?? "").slice(0, 2000);
+  // Royalty splits. Blank holders mean the artist owns that side themselves.
+  const holder = (v: unknown) => String(v ?? "").trim().slice(0, 120) || null;
+  const pct = req.body.publishingPercent === undefined || req.body.publishingPercent === "" ? DEFAULT_PUBLISHING_PERCENT : Number(req.body.publishingPercent);
+  if (!Number.isInteger(pct) || pct < 0 || pct > 90)
+    return res.status(400).json({ error: "songwriting share must be a whole number from 0 to 90" });
   // Track order follows the file names, so "01 Intro.mp3", "02 ..." land in order.
   const sorted = [...files].sort((a, b) => a.originalname.localeCompare(b.originalname, undefined, { numeric: true }));
   const albumId = db.transaction(() => {
     const id = Number(
-      db.prepare(`INSERT INTO albums (artist_id, title, credits, cover_file) VALUES (?, ?, ?, ?)`)
-        .run(artist.id, title, credits, cover).lastInsertRowid,
+      db.prepare(
+        `INSERT INTO albums (artist_id, title, credits, cover_file, master_holder, publisher, publishing_percent) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(artist.id, title, credits, cover, holder(req.body.masterHolder), holder(req.body.publisher), pct).lastInsertRowid,
     );
     const insert = db.prepare(`INSERT INTO tracks (album_id, position, title, audio_file) VALUES (?, ?, ?, ?)`);
     sorted.forEach((f, i) => {

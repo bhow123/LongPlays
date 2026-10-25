@@ -103,6 +103,11 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic-v2.db")) {
   // Albums released before cover art was supported.
   const albumCols = db.prepare(`PRAGMA table_info(albums)`).all() as { name: string }[];
   if (!albumCols.some((c) => c.name === "cover_file")) db.exec(`ALTER TABLE albums ADD COLUMN cover_file TEXT`);
+  // Royalty splits per release. A NULL holder means the album's own artist.
+  if (!albumCols.some((c) => c.name === "master_holder")) db.exec(`ALTER TABLE albums ADD COLUMN master_holder TEXT`);
+  if (!albumCols.some((c) => c.name === "publisher")) db.exec(`ALTER TABLE albums ADD COLUMN publisher TEXT`);
+  if (!albumCols.some((c) => c.name === "publishing_percent"))
+    db.exec(`ALTER TABLE albums ADD COLUMN publishing_percent INTEGER NOT NULL DEFAULT 8`);
   // Demo releases are flagged so the UI can label them.
   const artistCols = db.prepare(`PRAGMA table_info(artists)`).all() as { name: string }[];
   if (!artistCols.some((c) => c.name === "demo")) db.exec(`ALTER TABLE artists ADD COLUMN demo INTEGER NOT NULL DEFAULT 0`);

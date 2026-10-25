@@ -229,6 +229,11 @@ async function openAlbum(id, pane = "tracks") {
         </li>`).join("")}
     </ol>
     ${a.credits ? `<div class="credits-note"><strong>Credits</strong>\n${esc(a.credits)}</div>` : ""}
+    <div class="rights-note">
+      <p class="eyebrow">${a.demo ? `On a ${gbp(config.albumPrice)} sale (demo copies are free)` : `Where your ${gbp(config.albumPrice)} goes`}</p>
+      <div><span>Recording · ${esc(a.masterHolder)}</span><strong>${gbp(a.split.recording)}</strong></div>
+      <div><span>Songwriting · ${esc(a.publisher)}</span><strong>${gbp(a.split.publishing)}</strong></div>
+    </div>
     <div style="margin-top:22px">
       <p class="eyebrow">Copy owners</p>
       <div class="owner-list">${owners.length ? owners.map((o) => `<a href="#fan/${encodeURIComponent(o.name)}">${copyNo(o.number)} ${esc(o.name)}</a>`).join("") : `<span>No owners yet. Be ${copyNo(1)}.</span>`}</div>
@@ -627,7 +632,7 @@ async function plan() {
 
 async function payouts() {
   const p = await api("/api/payouts");
-  const price = config.albumPrice, artist = config.artistPerAlbum;
+  const price = config.albumPrice, artist = config.artistPerAlbum, { recording, publishing } = config.defaultSplit;
   const net = Math.round(price / (1 + config.vatRate));
   const vat = price - net, platform = net - artist;
   const pct = (x) => `${(x / price) * 100}%`;
@@ -635,16 +640,18 @@ async function payouts() {
   $("#payouts").innerHTML = `
     <div class="section-head">
       <div><h2>Where every ${gbp(price)} goes</h2>
-      <p>Prices include ${p.vatRate * 100}% VAT. The artist gets ${p.artistShare * 100}% of what's left, whether the fan used a credit or paid cash.</p></div>
+      <p>Prices include ${p.vatRate * 100}% VAT. Rights holders get ${p.artistShare * 100}% of what's left, whether the fan used a credit or paid cash. That splits between whoever owns the recording (the artist or their label) and the songwriters and publishers, ${config.defaultPublishingPercent}% of the price before VAT by default. Each release sets its own split.</p></div>
     </div>
     <div class="split">
       <div class="split-bar">
-        <div class="s-artist" style="width:${pct(artist)}">${gbp(artist)}</div>
+        <div class="s-artist" style="width:${pct(recording)}">${gbp(recording)}</div>
+        <div class="s-song" style="width:${pct(publishing)}"></div>
         <div class="s-vat" style="width:${pct(vat)}">${gbp(vat)}</div>
         <div class="s-platform" style="width:${pct(platform)}"></div>
       </div>
       <div class="legend">
-        <div><strong>${gbp(artist)}</strong><i style="background:var(--accent)"></i>Artist</div>
+        <div><strong>${gbp(recording)}</strong><i style="background:var(--accent)"></i>Recording</div>
+        <div><strong>${gbp(publishing)}</strong><i class="i-song"></i>Songwriting</div>
         <div><strong>${gbp(vat)}</strong><i style="background:var(--vat)"></i>VAT</div>
         <div><strong>${gbp(platform)}</strong><i style="background:var(--accent-2)"></i>OwnMusic</div>
       </div>
@@ -653,18 +660,23 @@ async function payouts() {
     <div class="stat-grid">
       <div class="stat"><strong>${tot.copies}</strong><span>albums sold</span></div>
       <div class="stat"><strong>${gbp(tot.gross)}</strong><span>sales</span></div>
-      <div class="stat"><strong>${gbp(tot.artist)}</strong><span>to artists</span></div>
+      <div class="stat"><strong>${gbp(tot.artist)}</strong><span>to rights holders</span></div>
       <div class="stat"><strong>${gbp(p.heldForUnspentCredits)}</strong><span>held for unspent credits</span></div>
     </div>
     <ul class="rows" style="margin-top:20px">
       ${p.payouts.map((r) => `
         <li class="payout-row">
           <strong>${esc(r.artist)}</strong><span class="r"><strong>${gbp(r.artistPayout)}</strong></span>
-          <span class="muted small">${plural(r.copiesSold, "album")} · ${r.viaCredit} by credit, ${r.viaCash} cash</span>
+          <span class="muted small">${plural(r.copiesSold, "album")} · ${r.viaCredit} by credit, ${r.viaCash} cash · recording ${gbp(r.recordingPayout)}, songwriting ${gbp(r.publishingPayout)}</span>
           <span class="muted small r">of ${gbp(r.gross)} · VAT ${gbp(r.vat)} · us ${gbp(r.platformFee)}</span>
         </li>`).join("")
         || `<li class="muted">No sales yet this month.</li>`}
     </ul>
+    ${p.rightsHolders.length ? `
+      <h2 style="margin:32px 0 4px">Rights holders paid</h2>
+      <ul class="rows">${p.rightsHolders.map((h) => `
+        <li><span><strong>${esc(h.name)}</strong> <span class="muted small">· ${h.role === "recording" ? "recording" : "songwriting & publishing"}</span></span><span class="r">${gbp(h.amount)}</span></li>`).join("")}
+      </ul>` : ""}
     <p class="muted small" style="margin-top:14px">Subscription money for credits nobody has spent yet is held. It reaches an artist when a fan uses the credit on their album.</p>`;
 }
 
@@ -704,6 +716,14 @@ async function artist() {
         </label>
         <ol class="file-list" id="file-list"></ol>
         <label style="margin-top:14px">Credits <textarea name="credits" rows="3" placeholder="Written by…, produced by…, samples or AI tools used…"></textarea></label>
+        <fieldset class="splits">
+          <legend>Royalty splits</legend>
+          <p class="muted small">Rights holders get ${gbp(config.artistPerAlbum)} of every copy. Songwriting and publishing take a share of the price before VAT (${config.defaultPublishingPercent}% is the usual UK rate), and whoever owns the recording gets the rest. Leave a name blank if you own that side yourself.</p>
+          <label>Recording owned by <input name="masterHolder" placeholder="${esc(a.name)} (you), or your label" maxlength="120" /></label>
+          <label>Songwriting and publishing owned by <input name="publisher" placeholder="${esc(a.name)} (you), or your publisher" maxlength="120" /></label>
+          <label>Songwriting share, % of price before VAT <input name="publishingPercent" type="number" min="0" max="90" step="1" value="${config.defaultPublishingPercent}" /></label>
+          <p class="muted small" id="split-preview"></p>
+        </fieldset>
         <button class="btn btn-primary btn-block">Release album</button>
         <p id="upload-status" class="muted small" style="margin-top:10px"></p>
       </form>` : ""}
@@ -718,6 +738,14 @@ async function artist() {
   });
   const form = $("#upload-form");
   if (!form) return;
+  const splitPreview = () => {
+    const net = Math.round(config.albumPrice / (1 + config.vatRate));
+    const pct = Math.min(90, Math.max(0, Math.floor(Number(form.publishingPercent.value) || 0)));
+    const publishing = Math.min(config.artistPerAlbum, Math.floor((net * pct) / 100));
+    $("#split-preview").textContent = `Per copy: ${gbp(config.artistPerAlbum - publishing)} to ${form.masterHolder.value.trim() || "you"} for the recording, ${gbp(publishing)} to ${form.publisher.value.trim() || "you"} for songwriting.`;
+  };
+  form.addEventListener("input", splitPreview);
+  splitPreview();
   form.cover.addEventListener("change", () => {
     const file = form.cover.files[0];
     if (file) $("#cover-preview").innerHTML = `<img src="${URL.createObjectURL(file)}" alt="" />`;

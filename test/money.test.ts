@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "../src/db.js";
 import {
-  buyAlbum, subscribe, cancelSubscription, renewSubscription, creditBalance, ownsAlbum, payoutsForMonth, accountSummary,
+  buyAlbum, subscribe, cancelSubscription, renewSubscription, creditBalance, ownsAlbum, payoutsForMonth, accountSummary, splitRights,
 } from "../src/money.js";
 
 function setup() {
@@ -130,4 +130,25 @@ test("the demo album is free: no credit used, nothing charged or paid out", () =
   assert.equal(p.heldForUnspentCredits, 1000);
   // Works without a subscription too.
   assert.equal(buyAlbum(db, user("newcomer"), demo, oct).paidWith, "free");
+});
+
+test("rights split: songwriting takes 8% of net by default, recording the rest of the 90%", () => {
+  assert.deepEqual(splitRights(500), { recording: 342, publishing: 33 });
+  assert.deepEqual(splitRights(500, 0), { recording: 375, publishing: 0 });
+  assert.deepEqual(splitRights(500, 90), { recording: 0, publishing: 375 });
+});
+
+test("payouts credit the label and publisher per release, defaulting to the artist", () => {
+  const { db, user, artist, album } = setup();
+  const a = artist("Band");
+  const own = album(a); // artist owns both sides
+  const signed = album(a);
+  db.prepare(`UPDATE albums SET master_holder = 'Indie Label', publisher = 'Songs Ltd', publishing_percent = 10 WHERE id = ?`).run(signed);
+  buyAlbum(db, user("f1"), own, oct);
+  buyAlbum(db, user("f2"), signed, oct);
+  const p = payoutsForMonth(db, "2026-10");
+  assert.equal(p.payouts[0].artistPayout, 750);
+  assert.equal(p.payouts[0].recordingPayout + p.payouts[0].publishingPayout, 750);
+  const by = Object.fromEntries(p.rightsHolders.map((h) => [`${h.role}:${h.name}`, h.amount]));
+  assert.deepEqual(by, { "recording:Band": 342, "songwriting:Band": 33, "recording:Indie Label": 334, "songwriting:Songs Ltd": 41 });
 });

@@ -273,7 +273,7 @@ textarea { resize: vertical; }
 .split-bar .s-artist { background: linear-gradient(135deg, var(--accent), #ff8a4c); color: #1a0a04; }
 .split-bar .s-vat { background: var(--vat); }
 .split-bar .s-platform { background: var(--accent-2); }
-.legend { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.legend { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
 .legend div { font-size: 0.85rem; color: var(--muted); }
 .legend strong { display: block; font: 700 1.25rem var(--mono); color: var(--fg); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
@@ -462,3 +462,14 @@ main, .top, .tabs, .landing { padding-left: max(16px, env(safe-area-inset-left))
 .next-steps strong { flex-basis: 100%; }
 .btn-play { font-size: 1.05rem; padding: 12px 22px; }
 .preview-note { flex-basis: 100%; }
+
+/* Royalty splits */
+.split-bar .s-song, .legend .i-song { background: #ffc145; }
+@media (max-width: 520px) { .legend { grid-template-columns: repeat(2, 1fr); } }
+.rights-note { margin-top: 12px; padding: 14px; border-radius: 12px; background: var(--surface-2); font-size: 0.9rem; }
+.rights-note .eyebrow { margin: 0 0 6px; }
+.rights-note div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; color: var(--muted); }
+.rights-note strong { font-family: var(--mono); color: var(--fg); }
+fieldset.splits { margin: 14px 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+fieldset.splits legend { font-weight: 700; padding: 0 6px; }
+fieldset.splits p { margin: 0 0 10px; }
