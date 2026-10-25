@@ -151,11 +151,11 @@ async function payouts() {
   const p = await api("/api/payouts");
   $("#payouts").innerHTML = `
     <h2>Artist payouts for ${esc(p.month)}</h2>
-    <p class="muted">Every album copy is worth ${gbp(config.albumPrice)} to its artist, whether the fan used a credit or paid cash.</p>
+    <p class="muted">Every album copy is a ${gbp(config.albumPrice)} sale (including ${p.vatRate * 100}% VAT), whether the fan used a credit or paid cash. The artist gets ${p.artistShare * 100}% of the amount after VAT.</p>
     <table>
-      <tr><th>Artist</th><th class="n">Copies</th><th class="n">Credit / cash</th><th class="n">Sales</th><th class="n">To artist (${p.artistShare * 100}%)</th><th class="n">Platform</th></tr>
-      ${p.payouts.map((r) => `<tr><td>${esc(r.artist)}</td><td class="n">${r.copiesSold}</td><td class="n">${r.viaCredit} / ${r.viaCash}</td><td class="n">${gbp(r.gross)}</td><td class="n"><strong>${gbp(r.artistPayout)}</strong></td><td class="n">${gbp(r.platformFee)}</td></tr>`).join("")
-        || `<tr><td colspan="6" class="muted">No sales yet this month.</td></tr>`}
+      <tr><th>Artist</th><th class="n">Copies</th><th class="n">Credit / cash</th><th class="n">Sales</th><th class="n">VAT</th><th class="n">To artist</th><th class="n">Platform</th></tr>
+      ${p.payouts.map((r) => `<tr><td>${esc(r.artist)}</td><td class="n">${r.copiesSold}</td><td class="n">${r.viaCredit} / ${r.viaCash}</td><td class="n">${gbp(r.gross)}</td><td class="n">${gbp(r.vat)}</td><td class="n"><strong>${gbp(r.artistPayout)}</strong></td><td class="n">${gbp(r.platformFee)}</td></tr>`).join("")
+        || `<tr><td colspan="7" class="muted">No sales yet this month.</td></tr>`}
     </table>
     <p class="muted">Subscription money held for credits fans haven't spent yet: ${gbp(p.heldForUnspentCredits)}. It goes to artists when the credits are used.</p>`;
 }
@@ -172,7 +172,7 @@ async function artist() {
     </form>
     ${a?.verified ? `
       <h2>Release an album</h2>
-      <p class="muted">Albums sell for ${gbp(config.albumPrice)}; you get ${gbp(config.albumPrice * config.artistShare)} of every copy.</p>
+      <p class="muted">Albums sell for ${gbp(config.albumPrice)} including VAT; you get 90% of the rest, ${gbp(config.artistPerAlbum)} per copy.</p>
       <form id="upload-form">
         <label>Album title <input name="title" required /></label>
         <label>Credits <textarea name="credits" rows="2" placeholder="Written by…, produced by…, samples / AI tools used…"></textarea></label>

@@ -4,6 +4,8 @@ export const ALBUM_PRICE_PENCE = 500;
 export const SUBSCRIPTION_PENCE = 1000;
 export const CREDITS_PER_MONTH = 2;
 export const ARTIST_SHARE = 0.9;
+/** UK VAT. Prices include it; the artist's 90% is of the price after VAT. */
+export const VAT_RATE = 0.2;
 export const PREVIEW_SECONDS = 30;
 
 export const monthOf = (d: Date) => d.toISOString().slice(0, 7);
@@ -13,8 +15,11 @@ function nextMonth(month: string) {
   return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
 }
 
-// Integer maths so 90% of 500p is exactly 450p.
-const artistCut = (pence: number) => Math.floor((pence * Math.round(ARTIST_SHARE * 100)) / 100);
+// Integer maths, worked out per album copy. £5 incl. VAT is 417p net (rounded to the
+// nearest penny), and the artist gets 90% of net, rounded down: 375p per copy.
+const vatPercent = Math.round(VAT_RATE * 100);
+export const netOfVat = (pence: number) => Math.round((pence * 100) / (100 + vatPercent));
+export const artistCut = (pence: number) => Math.floor((netOfVat(pence) * Math.round(ARTIST_SHARE * 100)) / 100);
 
 function bill(db: DB, userId: number, month: string) {
   db.prepare(`INSERT INTO payments (user_id, kind, amount_pence, month) VALUES (?, 'subscription', ?, ?)`).run(
@@ -124,29 +129,44 @@ export type ArtistPayout = {
   viaCredit: number;
   viaCash: number;
   gross: number;
+  vat: number;
+  net: number;
   artistPayout: number;
   platformFee: number;
 };
 
 /**
- * An artist earns when one of their albums is bought, whether with a credit or cash:
- * each copy is worth £5 and the artist gets 90%, rounded down once per artist per month.
+ * An artist earns when one of their albums is bought, whether with a credit or cash.
+ * Each copy is a £5 sale including VAT; the artist gets 90% of the net, so £3.75 a copy.
  * Subscription money for credits nobody has spent yet isn't anyone's revenue: it's held.
  */
 export function payoutsForMonth(db: DB, month: string) {
-  const rows = db
+  const copies = db
     .prepare(
-      `SELECT ar.id AS artistId, ar.name AS artist, COUNT(*) AS copiesSold,
-              SUM(c.paid_with = 'credit') AS viaCredit, SUM(c.paid_with = 'cash') AS viaCash,
-              SUM(c.value_pence) AS gross
+      `SELECT ar.id AS artistId, ar.name AS artist, c.paid_with AS paidWith, c.value_pence AS value
        FROM copies c JOIN albums al ON al.id = c.album_id JOIN artists ar ON ar.id = al.artist_id
-       WHERE c.month = ? GROUP BY ar.id ORDER BY gross DESC`,
+       WHERE c.month = ? ORDER BY ar.id`,
     )
-    .all(month) as Omit<ArtistPayout, "artistPayout" | "platformFee">[];
-  const payouts: ArtistPayout[] = rows.map((r) => {
-    const artistPayout = artistCut(r.gross);
-    return { ...r, artistPayout, platformFee: r.gross - artistPayout };
-  });
+    .all(month) as { artistId: number; artist: string; paidWith: "credit" | "cash"; value: number }[];
+  const byArtist = new Map<number, ArtistPayout>();
+  for (const c of copies) {
+    let p = byArtist.get(c.artistId);
+    if (!p) {
+      p = { artistId: c.artistId, artist: c.artist, copiesSold: 0, viaCredit: 0, viaCash: 0, gross: 0, vat: 0, net: 0, artistPayout: 0, platformFee: 0 };
+      byArtist.set(c.artistId, p);
+    }
+    const net = netOfVat(c.value);
+    const toArtist = artistCut(c.value);
+    p.copiesSold++;
+    if (c.paidWith === "credit") p.viaCredit++;
+    else p.viaCash++;
+    p.gross += c.value;
+    p.vat += c.value - net;
+    p.net += net;
+    p.artistPayout += toArtist;
+    p.platformFee += net - toArtist;
+  }
+  const payouts = [...byArtist.values()].sort((a, b) => b.gross - a.gross);
   const moneyIn = (db.prepare(`SELECT COALESCE(SUM(amount_pence), 0) AS p FROM payments WHERE month <= ?`).get(month) as { p: number }).p;
   const spent = (db.prepare(`SELECT COALESCE(SUM(value_pence), 0) AS p FROM copies WHERE month <= ?`).get(month) as { p: number }).p;
   return { month, payouts, heldForUnspentCredits: moneyIn - spent };

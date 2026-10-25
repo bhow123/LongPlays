@@ -83,7 +83,7 @@ test("album copies are numbered in order, one per person, and never charged twic
   assert.equal(accountSummary(db, fans[0]).totalPaid, 500);
 });
 
-test("artist gets 90% of £5 per album however it was paid for", () => {
+test("artist gets 90% of £5 net of VAT, £3.75, per album however it was paid for", () => {
   const { db, user, artist, album } = setup();
   const lp = album(artist("Ben"));
   const sub = user("sub"), cash = user("cash");
@@ -91,10 +91,12 @@ test("artist gets 90% of £5 per album however it was paid for", () => {
   buyAlbum(db, sub, lp, oct);
   buyAlbum(db, cash, lp, oct);
   const { payouts } = payoutsForMonth(db, "2026-10");
-  assert.deepEqual(
-    [payouts[0].copiesSold, payouts[0].viaCredit, payouts[0].viaCash, payouts[0].gross, payouts[0].artistPayout, payouts[0].platformFee],
-    [2, 1, 1, 1000, 900, 100],
-  );
+  const p = payouts[0];
+  assert.deepEqual([p.copiesSold, p.viaCredit, p.viaCash], [2, 1, 1]);
+  // Per copy: £5.00 = £0.83 VAT + £4.17 net; artist £3.75, platform £0.42.
+  assert.deepEqual([p.gross, p.vat, p.net, p.artistPayout, p.platformFee], [1000, 166, 834, 750, 84]);
+  assert.equal(p.vat + p.artistPayout + p.platformFee, p.gross);
+  assert.equal(accountSummary(db, sub).purchases[0].toArtist, 375);
 });
 
 test("money for unspent credits is held, not paid to anyone", () => {

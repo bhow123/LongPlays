@@ -6,7 +6,7 @@ import crypto from "node:crypto";
 import { openDb, AUDIO_DIR } from "./db.js";
 import {
   buyAlbum, subscribe, cancelSubscription, renewSubscription, accountSummary, logPlay, ownsAlbum,
-  payoutsForMonth, monthOf, ALBUM_PRICE_PENCE, SUBSCRIPTION_PENCE, CREDITS_PER_MONTH, ARTIST_SHARE, PREVIEW_SECONDS,
+  payoutsForMonth, monthOf, ALBUM_PRICE_PENCE, SUBSCRIPTION_PENCE, CREDITS_PER_MONTH, ARTIST_SHARE, PREVIEW_SECONDS, VAT_RATE, artistCut,
 } from "./money.js";
 
 const db = openDb();
@@ -47,7 +47,8 @@ const artistFor = (userId: number) =>
 app.get("/api/config", (_req, res) =>
   res.json({
     albumPrice: ALBUM_PRICE_PENCE, subscription: SUBSCRIPTION_PENCE, creditsPerMonth: CREDITS_PER_MONTH,
-    previewSeconds: PREVIEW_SECONDS, artistShare: ARTIST_SHARE,
+    previewSeconds: PREVIEW_SECONDS, artistShare: ARTIST_SHARE, vatRate: VAT_RATE,
+    artistPerAlbum: artistCut(ALBUM_PRICE_PENCE),
   }),
 );
 
@@ -141,7 +142,7 @@ app.delete("/api/subscription", auth, (req, res) => {
 
 app.get("/api/payouts", (req, res) => {
   const month = String(req.query.month ?? monthOf(new Date()));
-  res.json({ artistShare: ARTIST_SHARE, ...payoutsForMonth(db, month) });
+  res.json({ artistShare: ARTIST_SHARE, vatRate: VAT_RATE, ...payoutsForMonth(db, month) });
 });
 
 // Artists: anyone can apply; only a verified artist's tracks are listed or uploadable.

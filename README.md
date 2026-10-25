@@ -8,7 +8,7 @@ OwnMusic is an open-source proof of concept for a fairer way to pay for music:
 - **£10 a month gets you 2 albums.** Subscribers get 2 album credits a month. Unused credits roll over and never expire, even if you cancel. You can buy extra albums for £5 at any time, with or without a subscription.
 - **Numbered copies.** Every purchase gets the next number: copy #1, #2, #3… There's no limit and no resale; each copy belongs to one person.
 - **Try before you buy.** Anyone can hear a 30-second preview of any track.
-- **Artists get 90%** of every album sold (£4.50 of £5), whether the fan used a credit or paid cash. Your money only goes to the artists you chose. Subscription money for credits nobody has spent yet is held, not pooled and split by market share.
+- **Artists get 90% after VAT.** Prices include 20% VAT, so a £5 album is £4.17 net and the artist gets £3.75 of it, whether the fan used a credit or paid cash. Your money only goes to the artists you chose. Subscription money for credits nobody has spent yet is held, not pooled and split by market share.
 - **A real artist behind every release.** Only verified artists can upload. AI is treated like sampling: allowed, but credited.
 
 It is a demo of the model, not a business. There is no real money, only a basic name-and-password sign-in, and no blockchain yet.
@@ -42,7 +42,7 @@ All of the rules live in [`src/money.ts`](src/money.ts) and are covered by tests
 | Each later month an active subscriber is charged £10 and granted 2 more credits; unused credits roll over | `renewSubscription` |
 | Cancelling stops billing; earned credits are kept | `cancelSubscription` |
 | Buying an album uses a credit if you have one, otherwise costs £5; you get the next numbered copy, one per person | `buyAlbum` |
-| Every copy is worth £5 to its artist, who gets 90% of their monthly total, rounded down once | `payoutsForMonth` |
+| Every copy is a £5 sale including 20% VAT (£4.17 net); the artist gets 90% of net, £3.75, and the platform 42p | `payoutsForMonth`, `artistCut` |
 | Money for unspent credits is held until a credit is used | `payoutsForMonth` |
 | Non-owners get a 30-second preview of each track | `PREVIEW_SECONDS`, enforced by the player |
 
