@@ -92,6 +92,8 @@ $("#login-form").addEventListener("submit", async (e) => {
     await api("/api/login", { method: "POST", body: { name: f.get("name"), password: f.get("password") } });
   } catch (err) { return toast(err.message); }
   boot();
+
+if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 });
 
 $("#tabs").addEventListener("click", (e) => {
@@ -366,6 +368,19 @@ async function play(trackId, album) {
   audio.src = `/api/tracks/${trackId}/audio`;
   audio.play();
   highlightTrack();
+  // Lock screen and headphone controls when installed on a phone.
+  if ("mediaSession" in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: t.title,
+      artist: album.artist,
+      album: album.title,
+      artwork: album.hasCover
+        ? [{ src: `/api/albums/${album.id}/cover`, sizes: "512x512" }]
+        : [{ src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" }],
+    });
+    navigator.mediaSession.setActionHandler("play", () => audio.play());
+    navigator.mediaSession.setActionHandler("pause", () => audio.pause());
+  }
 }
 
 function toggle() { audio.paused ? audio.play() : audio.pause(); }
@@ -687,3 +702,5 @@ async function artist() {
 }
 
 boot();
+
+if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));

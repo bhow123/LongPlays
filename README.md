@@ -132,6 +132,7 @@ public/
   index.html        Single page shell
   app.js            Vanilla JS UI: albums grid and album sheet (tracks / owners' room), player, collection, community, record shelves, plan, payouts, artist area
   style.css         Design tokens, light and dark themes, layout
+  manifest.webmanifest, sw.js, icons/   Installable web app: manifest, service worker, app icons
 test/
   money.test.ts     node:test tests for money.ts against an in-memory DB
   community.test.ts Tests for community.ts
@@ -143,6 +144,7 @@ test/
 - **Money:** everything is in **integer pence**. Rules live only in `src/money.ts`, so the UI and routes never do money maths themselves.
 - **Subscriptions:** there's no background job. `renewSubscription` runs on each signed-in request and bills any months the user hasn't been charged for yet, each giving 2 credits.
 - **UI:** one page, no framework. Fonts are Space Grotesk and JetBrains Mono from Google Fonts. Albums without cover art get a generated cover, made from a hash of the album's id and title, so it's always the same. Copy numbers are shown as `#0007`, and each owned album has a certificate with a serial number, `OM-<album>-<copy>`.
+- **Installable app (PWA):** `public/manifest.webmanifest`, icons in `public/icons/` (including `apple-touch-icon.png` for iPhone) and a small service worker (`public/sw.js`) that caches the app shell, network first, and never caches `/api/` or audio. On a phone, use "Add to Home Screen" to open it full screen. The player sets Media Session metadata, so lock-screen and headphone controls work.
 - **Previews:** the player stops non-owners at 30 seconds. The full file is still served to anyone signed in, so this isn't protection (see the roadmap).
 
 ## Money rules in code
