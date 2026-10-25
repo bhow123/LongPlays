@@ -8,7 +8,7 @@ It is a working demo of the model, not a business. There is no real money, the s
 
 - **Live demo:** https://ownmusic-production.up.railway.app
 - **Concept doc** (research, reasoning and risks): https://claude.ai/artifact/V5R5iF6W5z79Xz79Bt6b4x (shared by the project owner; it may need access)
-- **Licence:** MIT
+- **Licence:** MIT for the code (see [Licence](#licence)). The demo album's audio is not included.
 
 ---
 
@@ -257,3 +257,11 @@ Issues and pull requests are welcome. A few conventions:
 - Keep money maths in `src/money.ts`, in integer pence, with a test for every rule. Community rules go in `src/community.ts`.
 - Run `npm test` and `npm run typecheck` before opening a pull request.
 - If you change a [decision](#decisions-and-why) or settle an [open question](#open-questions), update this README in the same pull request.
+
+## Licence
+
+The code is released under the [MIT Licence](LICENSE): anyone can use, change and redistribute it, commercially or not, as long as they keep the copyright notice.
+
+**The demo audio is not covered.** `demo/one-i-can-release.m4a` ("Play Me First" on the demo album) is © Ben, all rights reserved, and is only included so the demo has something to play. Don't reuse it outside running OwnMusic. See `demo/README.md`.
+
+Music that artists upload to a running OwnMusic belongs to them. The code licence doesn't grant any rights to it.
