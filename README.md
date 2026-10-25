@@ -145,8 +145,6 @@ test/
 - **Subscriptions:** there's no background job. `renewSubscription` runs on each signed-in request and bills any months the user hasn't been charged for yet, each giving 2 credits.
 - **UI:** one page, no framework. Fonts are Space Grotesk and JetBrains Mono from Google Fonts. Albums without cover art get a generated cover, made from a hash of the album's id and title, so it's always the same. Copy numbers are shown as `#0007`, and each owned album has a certificate with a serial number, `OM-<album>-<copy>`.
 - **Installable app (PWA):** `public/manifest.webmanifest`, icons in `public/icons/` (including `apple-touch-icon.png` for iPhone) and a small service worker (`public/sw.js`) that caches the app shell, network first, and never caches `/api/` or audio. On a phone, use "Add to Home Screen" to open it full screen. The player sets Media Session metadata, so lock-screen and headphone controls work.
-- **My files:** fans can add music they already own (MP3s from CDs, old downloads) under My collection and play it in the same player. Files are kept in the browser's IndexedDB (`ownmusic-local`) on that device only. They never reach the server, so they can't be sold, counted in payouts or shared. Clearing site data removes them.
-- **Artists hear their own releases in full.** `POST /api/tracks/:id/plays` treats the album's own artist like an owner and returns `isArtist`; those plays are not logged.
 - **Previews:** the player stops non-owners at 30 seconds. The full file is still served to anyone signed in, so this isn't protection (see the roadmap).
 
 ## Money rules in code

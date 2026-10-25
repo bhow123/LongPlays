@@ -389,7 +389,7 @@ function toggle() { audio.paused ? audio.play() : audio.pause(); }
 $("#toggle").addEventListener("click", toggle);
 
 function highlightTrack() {
-  document.querySelectorAll("[data-track-row]").forEach((li) => li.classList.toggle("playing", li.dataset.trackRow === String(current?.trackId)));
+  document.querySelectorAll("[data-track-row]").forEach((li) => li.classList.toggle("playing", Number(li.dataset.trackRow) === current?.trackId));
   const hero = $("#hero");
   if (hero) hero.classList.toggle("spinning", !audio.paused && Number($("#sheet").dataset.album) === current?.albumId);
 }
@@ -437,105 +437,9 @@ async function collection() {
             <div class="serial">OM-${String(c.albumId).padStart(4, "0")}-${String(c.number).padStart(4, "0")} · ${esc(me.name)} · ${esc(monthName(c.month))}</div>
           </div>
         </button>`).join("")}</div>`
-      : `<div class="empty">No albums yet. Every album you buy gets a numbered certificate here. <br /><br /><button class="btn btn-primary" data-goto="albums">Browse albums</button></div>`}
-    <div class="section-head local-head">
-      <div><h2>My files</h2><p>Music you already own, played here. It stays on this device and is never uploaded or sold.</p></div>
-      <label class="btn">Add music files<input id="local-add" type="file" accept="audio/*" multiple hidden /></label>
-    </div>
-    <div id="local-list"></div>`;
-  renderLocal();
-}
-
-/* ---------- My files (device only, kept in IndexedDB) ---------- */
-
-const localDb = new Promise((resolve, reject) => {
-  const req = indexedDB.open("ownmusic-local", 1);
-  req.onupgradeneeded = () => req.result.createObjectStore("files", { keyPath: "id", autoIncrement: true });
-  req.onsuccess = () => resolve(req.result);
-  req.onerror = () => reject(req.error);
-});
-async function localStore(mode, fn) {
-  const store = (await localDb).transaction("files", mode).objectStore("files");
-  return new Promise((resolve, reject) => {
-    const req = fn(store);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-const localFiles = () => localStore("readonly", (s) => s.getAll()).catch(() => []);
-
-// "Artist - Title.mp3" becomes artist and title; anything else is just a title.
-function nameParts(filename) {
-  const base = filename.replace(/\.[^.]+$/, "").replace(/_/g, " ").trim();
-  const m = base.match(/^(.+?)\s+-\s+(.+)$/);
-  return m ? { artist: m[1], title: m[2] } : { artist: "", title: base };
-}
-
-async function renderLocal() {
-  const el = $("#local-list");
-  if (!el) return;
-  const files = await localFiles();
-  el.innerHTML = files.length
-    ? `<ol class="tracklist local-tracks">${files.map((f) => `
-        <li data-track-row="local:${f.id}">
-          <button class="local-remove" data-local-remove="${f.id}" aria-label="Remove ${esc(f.title)}">✕</button>
-          <span><span class="t">${esc(f.title)}</span><br /><span class="p">${esc(f.artist || "On this device")}</span></span>
-          <button class="track-btn own" data-local-play="${f.id}" aria-label="Play ${esc(f.title)}">▶</button>
-        </li>`).join("")}</ol>`
-    : `<div class="empty">Got MP3s from old CDs or downloads? Add them and play them alongside your albums.</div>`;
-  highlightTrack();
-}
-
-$("#collection").addEventListener("change", async (e) => {
-  if (e.target.id !== "local-add") return;
-  const added = [...e.target.files].filter((f) => f.type.startsWith("audio/") || /\.(mp3|m4a|aac|wav|flac|ogg|opus)$/i.test(f.name));
-  try {
-    for (const f of added) await localStore("readwrite", (s) => s.add({ ...nameParts(f.name), blob: f, addedAt: Date.now() }));
-    toast(`Added ${plural(added.length, "file")}. They stay on this device.`);
-  } catch {
-    toast("Couldn't save those files. Your browser may be out of storage.");
-  }
-  e.target.value = "";
-  renderLocal();
-});
-
-let localUrl = null;
-async function playLocal(id) {
-  const key = `local:${id}`;
-  if (current?.trackId === key) return toggle();
-  const f = await localStore("readonly", (s) => s.get(id));
-  if (!f) return;
-  if (localUrl) URL.revokeObjectURL(localUrl);
-  localUrl = URL.createObjectURL(f.blob);
-  current = { trackId: key, albumId: null, owned: true, limit: null };
-  $("#player").hidden = false;
-  $("#now-cover").innerHTML = cover(`local${id}`, f.title, false);
-  $("#now-title").textContent = f.title;
-  $("#now-artist").textContent = f.artist || "My files";
-  $("#now-badge").innerHTML = `<span class="badge own">On this device</span>`;
-  $("#preview-mark").hidden = true;
-  audio.src = localUrl;
-  audio.play();
-  highlightTrack();
-  if ("mediaSession" in navigator) {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: f.title,
-      artist: f.artist || "My files",
-      artwork: [{ src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" }],
-    });
-    navigator.mediaSession.setActionHandler("play", () => audio.play());
-    navigator.mediaSession.setActionHandler("pause", () => audio.pause());
-  }
+      : `<div class="empty">No albums yet. Every album you buy gets a numbered certificate here. <br /><br /><button class="btn btn-primary" data-goto="albums">Browse albums</button></div>`}`;
 }
 $("#collection").addEventListener("click", async (e) => {
-  const playId = e.target.closest("[data-local-play]")?.dataset.localPlay;
-  if (playId) return playLocal(Number(playId));
-  const removeId = e.target.closest("[data-local-remove]")?.dataset.localRemove;
-  if (removeId) {
-    if (current?.trackId === `local:${removeId}`) { audio.pause(); $("#player").hidden = true; current = null; }
-    await localStore("readwrite", (s) => s.delete(Number(removeId)));
-    return renderLocal();
-  }
   const id = e.target.closest("[data-album]")?.dataset.album;
   if (!id) return;
   catalogue = await api("/api/albums");

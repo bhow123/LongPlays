@@ -443,10 +443,3 @@ a.btn { display: inline-block; text-decoration: none; }
 .top { padding-top: max(18px, calc(env(safe-area-inset-top) + 8px)); }
 main, .top, .tabs, .landing { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
 @media (display-mode: standalone) { body { overscroll-behavior-y: none; } }
-
-/* My files: music kept on this device */
-.local-head { margin-top: 40px; }
-.local-head label.btn { cursor: pointer; }
-.local-tracks { margin-top: 12px; }
-.local-remove { background: none; border: 0; color: var(--muted); font-size: 0.85rem; cursor: pointer; padding: 6px; }
-.local-remove:hover { color: var(--fg); }
