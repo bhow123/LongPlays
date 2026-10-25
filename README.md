@@ -14,7 +14,7 @@ It is a demo of the model, not a business. There is no real money, no real sign-
 
 ## Run it
 
-Needs Node 20 or newer.
+Needs Node 22.
 
 ```sh
 npm install
