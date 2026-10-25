@@ -110,3 +110,24 @@ test("money for unspent credits is held, not paid to anyone", () => {
   assert.equal(payoutsForMonth(db, "2026-11").heldForUnspentCredits, 1500);
   assert.equal(payoutsForMonth(db, "2026-11").payouts.length, 0);
 });
+
+test("the demo album is free: no credit used, nothing charged or paid out", () => {
+  const { db, user, artist, album } = setup();
+  const demoArtist = artist("Demo");
+  db.prepare(`UPDATE artists SET demo = 1 WHERE id = ?`).run(demoArtist);
+  const demo = album(demoArtist);
+  const fan = user("fan");
+  subscribe(db, fan, oct);
+  const r = buyAlbum(db, fan, demo, oct);
+  assert.equal(r.paidWith, "free");
+  assert.ok(ownsAlbum(db, fan, demo));
+  assert.equal(creditBalance(db, fan), 2);
+  const a = accountSummary(db, fan);
+  assert.equal(a.totalPaid, 1000);
+  assert.equal(a.purchases[0].paidWith, "free");
+  const p = payoutsForMonth(db, "2026-10");
+  assert.equal(p.payouts.length, 0);
+  assert.equal(p.heldForUnspentCredits, 1000);
+  // Works without a subscription too.
+  assert.equal(buyAlbum(db, user("newcomer"), demo, oct).paidWith, "free");
+});

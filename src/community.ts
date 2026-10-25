@@ -91,7 +91,7 @@ export function shelf(db: DB, name: string) {
     .prepare(
       `SELECT ar.name AS artist, COUNT(*) AS albums
        FROM copies c JOIN albums al ON al.id = c.album_id JOIN artists ar ON ar.id = al.artist_id
-       WHERE c.owner_id = ? GROUP BY ar.id ORDER BY albums DESC, ar.name`,
+       WHERE c.owner_id = ? AND c.value_pence > 0 GROUP BY ar.id ORDER BY albums DESC, ar.name`,
     )
     .all(user.id) as { artist: string; albums: number }[];
   const artist = db.prepare(`SELECT name FROM artists WHERE user_id = ? AND verified = 1`).get(user.id) as { name: string } | undefined;

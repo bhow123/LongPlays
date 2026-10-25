@@ -195,7 +195,7 @@ async function openAlbum(id, pane = "tracks") {
         <p class="eyebrow">${a.demo ? "Demo album" : "Album"} · ${plural(a.tracks.length, "track")}</p>
         <h2 id="sheet-title">${esc(a.title)}</h2>
         <p class="by">${esc(a.artist)}</p>
-        ${a.demo ? `<p class="demo-note">This is a demo release by a demo artist, here so you can try OwnMusic. Own a copy (no real money) and it lands on your record shelf and opens the owners' room.</p>` : ""}
+        ${a.demo ? `<p class="demo-note">This is a demo release by a demo artist, here so you can try OwnMusic. Add a free copy, no subscription needed, and it lands on your record shelf and opens the owners' room.</p>` : ""}
         ${justBought === a.id ? `<div class="next-steps">
           <strong>${copyNo(a.myCopy)} is yours.</strong>
           <a class="btn" href="#fan/${encodeURIComponent(me.name)}">See it on your record shelf</a>
@@ -206,6 +206,9 @@ async function openAlbum(id, pane = "tracks") {
             ? `<div class="owned-badge"><span class="muted small">Your release</span><strong>${plural(a.copiesSold, "owner")}</strong></div>`
             : a.myCopy
             ? `<div class="owned-badge"><span class="muted small">You own copy</span><strong>${copyNo(a.myCopy)}</strong></div>`
+            : a.demo
+            ? `<button class="btn btn-primary" data-buy="${a.id}">Add copy ${copyNo(a.copiesSold + 1)} to my shelf · free</button>
+               <span class="muted small">Demo album: no subscription or payment needed</span>`
             : `<button class="btn btn-primary" data-buy="${a.id}">Own copy ${copyNo(a.copiesSold + 1)} · ${account.credits > 0 ? "1 credit" : gbp(config.albumPrice)}</button>
                <span class="muted small">${gbp(config.artistPerAlbum)} goes to ${esc(a.artist)}</span>`}
         </div>
@@ -275,7 +278,7 @@ async function loadRoom(a) {
           <span><strong>${t.perks}</strong> owner perks</span>
         </div>
         ${t.nextParty ? `<p class="party-teaser">🎧 Listening party ${esc(whenParty(t.nextParty))}</p>` : ""}
-        <button class="btn btn-primary" data-buy="${a.id}">Own copy ${copyNo(a.copiesSold + 1)} to get in</button>
+        <button class="btn btn-primary" data-buy="${a.id}">${a.demo ? "Add a free demo copy" : `Own copy ${copyNo(a.copiesSold + 1)}`} to get in</button>
       </div>`;
     return;
   }
@@ -352,7 +355,7 @@ $("#sheet").addEventListener("click", async (e) => {
     b.disabled = true;
     try {
       const r = await api(`/api/albums/${b.dataset.buy}/buy`, { method: "POST" });
-      toast(`You own ${copyNo(r.number)} of ${album.title}${r.paidWith === "credit" ? " · 1 credit used" : ` · ${gbp(config.albumPrice)}`}`);
+      toast(`You own ${copyNo(r.number)} of ${album.title}${r.paidWith === "credit" ? " · 1 credit used" : r.paidWith === "free" ? " · free demo copy" : ` · ${gbp(config.albumPrice)}`}`);
       await refreshAccount();
       await albums();
       justBought = album.id;
@@ -552,7 +555,7 @@ async function shelfView(name) {
       <div class="stat"><strong>${f.records.length}</strong><span>records</span></div>
       <div class="stat"><strong>${f.supported.length}</strong><span>artists backed</span></div>
       <div class="stat"><strong>${f.records.length ? copyNo(Math.min(...f.records.map((r) => r.number))) : "–"}</strong><span>lowest copy number</span></div>
-      <div class="stat"><strong>${gbp(f.records.length * config.artistPerAlbum)}</strong><span>sent to artists</span></div>
+      <div class="stat"><strong>${gbp(f.records.filter((r) => !r.demo).length * config.artistPerAlbum)}</strong><span>sent to artists</span></div>
     </div>
     <div class="shelf">${f.records.length ? shelfHtml(f.records, perRow()) : `<div class="empty">${isMe ? "Your shelf is empty. Every album you buy stands here with its copy number." : "Nothing on this shelf yet."}</div>`}</div>
     ${f.supported.length ? `
@@ -605,7 +608,7 @@ async function plan() {
       <h2 style="margin:28px 0 4px">Purchases</h2>
       <ul class="rows">${acc.purchases.map((r) => `
         <li><span><strong>${esc(r.title)}</strong> <span class="muted">· ${esc(r.artist)} · ${copyNo(r.number)}</span></span>
-        <span class="r">${r.paidWith === "credit" ? "1 credit" : gbp(r.value)} → ${gbp(r.toArtist)} to artist</span></li>`).join("")}
+        <span class="r">${r.paidWith === "free" ? "Free demo copy" : `${r.paidWith === "credit" ? "1 credit" : gbp(r.value)} → ${gbp(r.toArtist)} to artist`}</span></li>`).join("")}
       </ul>` : ""}`;
   $("#subscribe")?.addEventListener("click", async () => {
     await api("/api/subscription", { method: "POST" });

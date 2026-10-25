@@ -96,11 +96,17 @@ export function buyAlbum(db: DB, userId: number, albumId: number, now = new Date
     const existing = db
       .prepare(`SELECT number, paid_with FROM copies WHERE owner_id = ? AND album_id = ?`)
       .get(userId, albumId) as { number: number; paid_with: "credit" | "cash" } | undefined;
-    if (existing) return { number: existing.number, paidWith: existing.paid_with, alreadyOwned: true };
-    if (!db.prepare(`SELECT 1 FROM albums WHERE id = ?`).get(albumId)) throw new Error("album not found");
+    if (existing) return { number: existing.number, paidWith: existing.paid_with as string, alreadyOwned: true };
+    const album = db
+      .prepare(`SELECT ar.demo FROM albums al JOIN artists ar ON ar.id = al.artist_id WHERE al.id = ?`)
+      .get(albumId) as { demo: number } | undefined;
+    if (!album) throw new Error("album not found");
     const month = monthOf(now);
-    const paidWith = creditBalance(db, userId) > 0 ? "credit" : "cash";
-    if (paidWith === "credit")
+    // Demo albums are free: no credit, no payment, nothing to pay out. Stored as a £0 copy.
+    const paidWith = album.demo ? "free" : creditBalance(db, userId) > 0 ? "credit" : "cash";
+    if (paidWith === "free") {
+      // nothing to charge
+    } else if (paidWith === "credit")
       db.prepare(`INSERT INTO credit_ledger (user_id, delta, reason, month) VALUES (?, -1, 'album', ?)`).run(userId, month);
     else
       db.prepare(`INSERT INTO payments (user_id, kind, amount_pence, month) VALUES (?, 'album', ?, ?)`).run(
@@ -113,7 +119,7 @@ export function buyAlbum(db: DB, userId: number, albumId: number, now = new Date
       .get(albumId) as { n: number };
     db.prepare(
       `INSERT INTO copies (album_id, number, owner_id, paid_with, value_pence, month) VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(albumId, n, userId, paidWith, ALBUM_PRICE_PENCE, month);
+    ).run(albumId, n, userId, paidWith === "free" ? "cash" : paidWith, paidWith === "free" ? 0 : ALBUM_PRICE_PENCE, month);
     return { number: n, paidWith, alreadyOwned: false };
   })();
 }
@@ -145,7 +151,7 @@ export function payoutsForMonth(db: DB, month: string) {
     .prepare(
       `SELECT ar.id AS artistId, ar.name AS artist, c.paid_with AS paidWith, c.value_pence AS value
        FROM copies c JOIN albums al ON al.id = c.album_id JOIN artists ar ON ar.id = al.artist_id
-       WHERE c.month = ? ORDER BY ar.id`,
+       WHERE c.month = ? AND c.value_pence > 0 ORDER BY ar.id`,
     )
     .all(month) as { artistId: number; artist: string; paidWith: "credit" | "cash"; value: number }[];
   const byArtist = new Map<number, ArtistPayout>();
@@ -194,6 +200,6 @@ export function accountSummary(db: DB, userId: number) {
     since: sub?.started_month ?? null,
     credits: creditBalance(db, userId),
     totalPaid: paid,
-    purchases: purchases.map((p) => ({ ...p, toArtist: artistCut(p.value) })),
+    purchases: purchases.map((p) => ({ ...p, paidWith: p.value ? p.paidWith : "free", toArtist: artistCut(p.value) })),
   };
 }
