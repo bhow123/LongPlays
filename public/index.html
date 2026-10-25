@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OwnMusic</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <h1>OwnMusic</h1>
+    <p class="tag">1p a play. £15 a month, max. 90% to the artist you actually listened to.</p>
+    <div id="who"></div>
+  </header>
+
+  <section id="login" hidden>
+    <form id="login-form">
+      <label>Your name <input name="name" required maxlength="40" autocomplete="nickname" /></label>
+      <button>Sign in</button>
+    </form>
+    <p class="muted">Demo sign-in: no password, no real money.</p>
+  </section>
+
+  <nav id="tabs" hidden>
+    <button data-tab="listen" class="on">Listen</button>
+    <button data-tab="copies">My copies</button>
+    <button data-tab="statement">My bill</button>
+    <button data-tab="payouts">Artist payouts</button>
+    <button data-tab="artist">For artists</button>
+  </nav>
+
+  <main>
+    <section data-panel="listen">
+      <div id="meter"></div>
+      <ul id="tracks" class="cards"></ul>
+    </section>
+    <section data-panel="copies" hidden><ul id="copies" class="cards"></ul></section>
+    <section data-panel="statement" hidden><div id="statement"></div></section>
+    <section data-panel="payouts" hidden><div id="payouts"></div></section>
+    <section data-panel="artist" hidden><div id="artist"></div></section>
+  </main>
+
+  <footer id="player" hidden>
+    <div><strong id="now-title"></strong> <span id="now-artist" class="muted"></span></div>
+    <audio id="audio" controls preload="none"></audio>
+    <div id="play-status" class="muted"></div>
+  </footer>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

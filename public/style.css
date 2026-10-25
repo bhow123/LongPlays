@@ -1,0 +1,32 @@
+:root {
+  --bg: #fbfaf7; --fg: #1d1b18; --muted: #6f6a62; --card: #fff; --line: #e6e1d8;
+  --accent: #c2410c; --accent-fg: #fff; --ok: #15803d;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #151412; --fg: #f1ede6; --muted: #a39d93; --card: #1f1d1a; --line: #34312c; --accent: #fb923c; --accent-fg: #1d1b18; --ok: #4ade80; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--fg); padding: 0 16px 140px; max-width: 860px; margin-inline: auto; }
+header { padding: 32px 0 16px; }
+h1 { margin: 0; font-size: 2rem; letter-spacing: -0.02em; }
+.tag { margin: 4px 0 12px; color: var(--muted); }
+.muted { color: var(--muted); font-size: 0.9em; }
+button { font: inherit; background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+input, textarea { font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--fg); width: 100%; }
+label { display: block; margin-bottom: 12px; }
+nav { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 20px; }
+nav button { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+nav button.on { background: var(--fg); color: var(--bg); }
+.cards { list-style: none; padding: 0; display: grid; gap: 12px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.card h3 { margin: 0; font-size: 1.05rem; }
+.copy-no { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); }
+.bar { height: 10px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 6px 0; }
+.bar > div { height: 100%; background: var(--accent); }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+td.n, th.n { text-align: right; }
+#player { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 1px solid var(--line); padding: 10px 16px; }
+#player audio { width: 100%; }
+.ok { color: var(--ok); }

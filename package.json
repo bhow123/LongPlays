@@ -1,0 +1,32 @@
+{
+  "name": "ownmusic",
+  "version": "1.0.0",
+  "description": "Open-source proof of concept: pay 1p per play, capped at £15/month, with 90% going to the artists you actually listened to.",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc",
+    "verify-artist": "tsx src/verify-artist.ts"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.3.0",
+    "multer": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.3.0",
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  }
+}
