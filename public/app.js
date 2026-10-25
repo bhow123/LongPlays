@@ -382,7 +382,7 @@ function play(trackId, album) {
   // Same track again is play/pause, unless the album was just bought mid-preview.
   if (current?.trackId === trackId && current.owned === owned) return toggle();
   const t = album.tracks.find((x) => x.id === trackId);
-  current = { trackId, albumId: album.id, album, owned, limit: owned ? null : config.previewSeconds };
+  current = { trackId, albumId: album.id, album, title: t.title, owned, limit: owned ? null : config.previewSeconds };
   audio.src = `/api/tracks/${trackId}/audio`;
   audio.play().catch(() => toast("Tap play again to start the music."));
   $("#player").hidden = false;
@@ -392,6 +392,7 @@ function play(trackId, album) {
   $("#now-badge").innerHTML = album.isMine ? `<span class="badge own">Your release</span>` : owned ? `<span class="badge own">${copyNo(album.myCopy)}</span>` : `<span class="badge">Preview</span>`;
   $("#preview-mark").hidden = true;
   highlightTrack();
+  syncNowPlaying();
   api(`/api/tracks/${trackId}/plays`, { method: "POST" })
     .then((r) => { if (current?.trackId === trackId) current.limit = r.previewSeconds; })
     .catch(() => {});
@@ -437,12 +438,22 @@ function highlightTrack() {
   if (hero) hero.classList.toggle("spinning", !audio.paused && Number($("#sheet").dataset.album) === current?.albumId);
 }
 
-audio.addEventListener("play", () => { $("#toggle").textContent = "❚❚"; $("#toggle").ariaLabel = "Pause"; highlightTrack(); });
-audio.addEventListener("pause", () => { $("#toggle").textContent = "▶"; $("#toggle").ariaLabel = "Play"; highlightTrack(); });
+const setPlayIcons = (playing) => {
+  for (const b of [$("#toggle"), $("#np-toggle")]) { b.textContent = playing ? "❚❚" : "▶"; b.ariaLabel = playing ? "Pause" : "Play"; }
+  $("#np").classList.toggle("paused", !playing);
+};
+audio.addEventListener("play", () => { setPlayIcons(true); highlightTrack(); });
+audio.addEventListener("pause", () => { setPlayIcons(false); highlightTrack(); });
+// A preview's timeline is just the preview, so the bar fills at the cut-off.
+const playLength = () => (current?.limit ? Math.min(current.limit, audio.duration || current.limit) : audio.duration || 0);
 audio.addEventListener("timeupdate", () => {
   if (!current) return;
-  const length = current.limit ? Math.min(current.limit, audio.duration || current.limit) : audio.duration || 0;
-  $("#progress").style.width = `${length ? Math.min(100, (audio.currentTime / length) * 100) : 0}%`;
+  const length = playLength();
+  const pctDone = `${length ? Math.min(100, (audio.currentTime / length) * 100) : 0}%`;
+  $("#progress").style.width = pctDone;
+  $("#np-progress").style.width = pctDone;
+  $("#np-cur").textContent = fmtTime(audio.currentTime);
+  $("#np-dur").textContent = `-${fmtTime(Math.max(0, length - audio.currentTime))}`;
   $("#now-time").textContent = current.limit
     ? `${fmtTime(audio.currentTime)} / ${fmtTime(length)}`
     : fmtTime(Math.max(0, (audio.duration || 0) - audio.currentTime));
@@ -452,12 +463,73 @@ audio.addEventListener("timeupdate", () => {
     toast(current.album?.demo ? "End of the preview. Add the album to your shelf, free, to hear it all." : "End of the preview. Own the album to hear every track in full.");
   }
 });
-$("#seek").addEventListener("click", (e) => {
+function seekFrom(e, bar) {
   if (!current || !audio.duration) return;
-  const r = e.currentTarget.getBoundingClientRect();
-  const length = current.limit ? Math.min(current.limit, audio.duration) : audio.duration;
-  audio.currentTime = ((e.clientX - r.left) / r.width) * length;
-});
+  const r = bar.getBoundingClientRect();
+  audio.currentTime = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * playLength();
+}
+$("#seek").addEventListener("click", (e) => { e.stopPropagation(); seekFrom(e, e.currentTarget); });
+
+/* ---------- Full-screen now playing ---------- */
+
+function syncNowPlaying() {
+  if (!current) return;
+  const a = current.album;
+  const i = a.tracks.findIndex((x) => x.id === current.trackId);
+  $("#np-bg").style.setProperty("--disc", discColor(a.id, a.title));
+  $("#np-album").textContent = a.title;
+  $("#np-cover").innerHTML = cover(a.id, a.title, a.hasCover);
+  $("#np-title").textContent = current.title;
+  $("#np-artist").textContent = a.artist;
+  $("#np-badge").innerHTML = $("#now-badge").innerHTML;
+  $("#np-next").disabled = i >= a.tracks.length - 1;
+  $("#np-note").innerHTML = current.owned
+    ? `Track ${i + 1} of ${a.tracks.length} · full track`
+    : `${config.previewSeconds}-second preview. <button class="btn btn-primary" id="np-get">${a.demo ? "Add it to your shelf free" : "Own a copy"} to hear it all</button>`;
+}
+function openNowPlaying() {
+  if (!current) return;
+  syncNowPlaying();
+  $("#np").hidden = false;
+  $("#np-sheet").style.transform = "";
+  document.body.style.overflow = "hidden";
+}
+function closeNowPlaying() {
+  $("#np").hidden = true;
+  if ($("#sheet").hidden) document.body.style.overflow = "";
+}
+$("#player").addEventListener("click", (e) => { if (!e.target.closest("#toggle, #seek")) openNowPlaying(); });
+$("#np-close").addEventListener("click", closeNowPlaying);
+$("#np-toggle").addEventListener("click", toggle);
+$("#np-next").addEventListener("click", () => step(1));
+$("#np-prev").addEventListener("click", () => (audio.currentTime > 3 ? (audio.currentTime = 0) : step(-1)));
+$("#np-seek").addEventListener("click", (e) => seekFrom(e, e.currentTarget));
+const openCurrentAlbum = () => { const id = current.albumId; closeNowPlaying(); openAlbum(id); };
+$("#np-open-album").addEventListener("click", openCurrentAlbum);
+$("#np-note").addEventListener("click", (e) => { if (e.target.id === "np-get") openCurrentAlbum(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#np").hidden) closeNowPlaying(); });
+
+// Swipe down to close, like a native player.
+{
+  const sheet = $("#np-sheet");
+  let startY = null, dy = 0;
+  sheet.addEventListener("touchstart", (e) => {
+    if (e.target.closest("#np-seek")) return;
+    startY = e.touches[0].clientY; dy = 0; sheet.style.transition = "none";
+  }, { passive: true });
+  sheet.addEventListener("touchmove", (e) => {
+    if (startY === null) return;
+    dy = Math.max(0, e.touches[0].clientY - startY);
+    sheet.style.transform = `translateY(${dy}px)`;
+  }, { passive: true });
+  sheet.addEventListener("touchend", () => {
+    if (startY === null) return;
+    sheet.style.transition = "";
+    startY = null;
+    if (dy > 120) closeNowPlaying();
+    else sheet.style.transform = "";
+  });
+}
 
 /* ---------- Collection ---------- */
 

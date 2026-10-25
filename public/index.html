@@ -92,6 +92,29 @@
     <div class="player-time" id="now-time">0:00</div>
     <button class="player-btn" id="toggle" aria-label="Pause">❚❚</button>
   </footer>
+  <div id="np" class="np" hidden role="dialog" aria-modal="true" aria-label="Now playing">
+    <div class="np-bg" id="np-bg"></div>
+    <div class="np-sheet" id="np-sheet">
+      <header class="np-top">
+        <button class="np-icon" id="np-close" aria-label="Close now playing">⌄</button>
+        <div class="np-from"><span>Playing from</span><strong id="np-album"></strong></div>
+        <button class="np-icon" id="np-open-album" aria-label="Open album">⋯</button>
+      </header>
+      <div class="np-art" id="np-cover"></div>
+      <div class="np-meta">
+        <div class="np-names"><h2 id="np-title"></h2><p id="np-artist"></p></div>
+        <span id="np-badge"></span>
+      </div>
+      <div class="np-seek" id="np-seek"><div id="np-progress"><span class="np-knob"></span></div></div>
+      <div class="np-times"><span id="np-cur">0:00</span><span id="np-dur">0:00</span></div>
+      <div class="np-controls">
+        <button class="np-icon np-skip" id="np-prev" aria-label="Previous track">⏮&#xFE0E;</button>
+        <button class="np-play" id="np-toggle" aria-label="Pause">❚❚</button>
+        <button class="np-icon np-skip" id="np-next" aria-label="Next track">⏭&#xFE0E;</button>
+      </div>
+      <p class="np-note" id="np-note"></p>
+    </div>
+  </div>
   <audio id="audio" preload="none"></audio>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
