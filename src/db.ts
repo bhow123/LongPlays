@@ -103,6 +103,9 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic-v2.db")) {
   // Albums released before cover art was supported.
   const albumCols = db.prepare(`PRAGMA table_info(albums)`).all() as { name: string }[];
   if (!albumCols.some((c) => c.name === "cover_file")) db.exec(`ALTER TABLE albums ADD COLUMN cover_file TEXT`);
+  // Demo releases are flagged so the UI can label them.
+  const artistCols = db.prepare(`PRAGMA table_info(artists)`).all() as { name: string }[];
+  if (!artistCols.some((c) => c.name === "demo")) db.exec(`ALTER TABLE artists ADD COLUMN demo INTEGER NOT NULL DEFAULT 0`);
   return db;
 }
 

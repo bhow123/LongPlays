@@ -161,9 +161,10 @@ async function albums() {
             <div class="vinyl"></div>
             ${cover(a.id, a.title, a.hasCover)}
             ${a.myCopy ? `<span class="stamp">${copyNo(a.myCopy)}</span>` : a.isMine ? `<span class="stamp">Yours</span>` : ""}
+            ${a.demo ? `<span class="demo-tag">Demo</span>` : ""}
           </div>
           <h3>${esc(a.title)}</h3>
-          <div class="muted">${esc(a.artist)}</div>
+          <div class="muted">${esc(a.artist)}${a.demo ? " · demo artist" : ""}</div>
           <div class="owners">${plural(a.copiesSold, "owner")} · ${plural(a.tracks.length, "track")}</div>
         </button>
       </li>`).join("")
@@ -175,6 +176,7 @@ $("#albums").addEventListener("click", (e) => {
   if (id) openAlbum(Number(id));
 });
 
+let justBought = null;
 async function openAlbum(id, pane = "tracks") {
   if (!catalogue.some((x) => x.id === id)) catalogue = await api("/api/albums");
   const a = catalogue.find((x) => x.id === id);
@@ -187,11 +189,18 @@ async function openAlbum(id, pane = "tracks") {
         <div class="vinyl"></div>
         ${cover(a.id, a.title, a.hasCover)}
         ${a.myCopy ? `<span class="stamp">${copyNo(a.myCopy)}</span>` : a.isMine ? `<span class="stamp">Yours</span>` : ""}
+            ${a.demo ? `<span class="demo-tag">Demo</span>` : ""}
       </div>
       <div>
-        <p class="eyebrow">Album · ${plural(a.tracks.length, "track")}</p>
+        <p class="eyebrow">${a.demo ? "Demo album" : "Album"} · ${plural(a.tracks.length, "track")}</p>
         <h2 id="sheet-title">${esc(a.title)}</h2>
         <p class="by">${esc(a.artist)}</p>
+        ${a.demo ? `<p class="demo-note">This is a demo release by a demo artist, here so you can try OwnMusic. Own a copy (no real money) and it lands on your record shelf and opens the owners' room.</p>` : ""}
+        ${justBought === a.id ? `<div class="next-steps">
+          <strong>${copyNo(a.myCopy)} is yours.</strong>
+          <a class="btn" href="#fan/${encodeURIComponent(me.name)}">See it on your record shelf</a>
+          <button class="btn" data-pane="room">Go to the owners' room</button>
+        </div>` : ""}
         <div class="buy-row">
           ${a.isMine
             ? `<div class="owned-badge"><span class="muted small">Your release</span><strong>${plural(a.copiesSold, "owner")}</strong></div>`
@@ -327,6 +336,7 @@ function postCard(p) {
 }
 
 function closeSheet() {
+  justBought = null;
   $("#sheet").hidden = true;
   document.body.style.overflow = "";
 }
@@ -345,7 +355,8 @@ $("#sheet").addEventListener("click", async (e) => {
       toast(`You own ${copyNo(r.number)} of ${album.title}${r.paidWith === "credit" ? " · 1 credit used" : ` · ${gbp(config.albumPrice)}`}`);
       await refreshAccount();
       await albums();
-      openAlbum(album.id, $(".seg .on")?.dataset.pane ?? "tracks");
+      justBought = album.id;
+      await openAlbum(album.id, $(".seg .on")?.dataset.pane ?? "tracks");
     } catch (err) { toast(err.message); b.disabled = false; }
   }
 });
@@ -484,6 +495,7 @@ const shelfHtml = (records, perRow) =>
         <button class="shelf-item" data-open-album="${r.albumId}" style="--tilt:${[-2, 1, -1, 2, 0][(r.albumId + i) % 5]}deg" title="${esc(r.title)} · ${esc(r.artist)}">
           ${cover(r.albumId, r.title, r.hasCover)}
           <span class="stamp">${copyNo(r.number)}</span>
+          ${r.demo ? `<span class="demo-tag">Demo</span>` : ""}
         </button>`).join("")}
     </div>`).join("");
 const perRow = () => (innerWidth < 520 ? 3 : innerWidth < 900 ? 4 : 6);

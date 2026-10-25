@@ -81,12 +81,12 @@ export function shelf(db: DB, name: string) {
   if (!user) return null;
   const records = db
     .prepare(
-      `SELECT al.id AS albumId, al.title, ar.name AS artist, c.number, c.month, al.cover_file IS NOT NULL AS hasCover,
+      `SELECT al.id AS albumId, al.title, ar.name AS artist, ar.demo, c.number, c.month, al.cover_file IS NOT NULL AS hasCover,
               (SELECT COUNT(*) FROM copies c2 WHERE c2.album_id = al.id) AS owners
        FROM copies c JOIN albums al ON al.id = c.album_id JOIN artists ar ON ar.id = al.artist_id
        WHERE c.owner_id = ? ORDER BY c.id DESC`,
     )
-    .all(user.id) as { albumId: number; title: string; artist: string; number: number; month: string; hasCover: number; owners: number }[];
+    .all(user.id) as { albumId: number; title: string; artist: string; demo: number; number: number; month: string; hasCover: number; owners: number }[];
   const supported = db
     .prepare(
       `SELECT ar.name AS artist, COUNT(*) AS albums

@@ -8,9 +8,11 @@ import {
   buyAlbum, subscribe, cancelSubscription, renewSubscription, accountSummary, logPlay, ownsAlbum,
   payoutsForMonth, monthOf, ALBUM_PRICE_PENCE, SUBSCRIPTION_PENCE, CREDITS_PER_MONTH, ARTIST_SHARE, PREVIEW_SECONDS, VAT_RATE, artistCut,
 } from "./money.js";
+import { seedDemo } from "./demo.js";
 import { addPost, myRooms, ownersAlsoOwn, roomFeed, roomTeaser, shelf } from "./community.js";
 
 const db = openDb();
+seedDemo(db);
 const app = express();
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 const SECRET = process.env.SESSION_SECRET ?? crypto.randomBytes(32).toString("hex");
@@ -84,7 +86,7 @@ app.get("/api/albums", (req, res) => {
       `SELECT al.id, al.title, al.credits, ar.name AS artist, ar.bio AS artistBio, al.cover_file IS NOT NULL AS hasCover,
               (SELECT COUNT(*) FROM copies c WHERE c.album_id = al.id) AS copiesSold,
               (SELECT number FROM copies c WHERE c.album_id = al.id AND c.owner_id = ?) AS myCopy,
-              (ar.user_id = ?) AS isMine
+              (ar.user_id = ?) AS isMine, ar.demo
        FROM albums al JOIN artists ar ON ar.id = al.artist_id
        WHERE ar.verified = 1 ORDER BY al.created_at DESC, al.id DESC`,
     )
