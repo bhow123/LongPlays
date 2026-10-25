@@ -10,7 +10,7 @@ OwnMusic is an open-source proof of concept for a fairer way to pay for music:
 - **Numbered copies, like a CD.** Buy copy #1, #2, #3… of a track. There's no limit and no resale; each copy belongs to one person, and owning a copy makes that track free to play.
 - **A real artist behind every release.** Only verified artists can upload. AI is treated like sampling: allowed, but credited.
 
-It is a demo of the model, not a business. There is no real money, no real sign-in, and no blockchain yet.
+It is a demo of the model, not a business. There is no real money, only a basic name-and-password sign-in, and no blockchain yet.
 
 ## Run it
 
@@ -24,12 +24,12 @@ ADMIN_TOKEN=pick-a-secret npm start
 
 Then, to release music:
 
-1. Sign in with any name, open **For artists**, and apply with your artist name.
+1. Sign in with a name and password (the first sign-in creates the account), open **For artists**, and apply with your artist name.
 2. Verify yourself: `npm run verify-artist -- "Your Artist Name"`
    (or `curl -X POST localhost:3000/api/admin/verify -H "x-admin-token: pick-a-secret" -H "content-type: application/json" -d '{"name":"Your Artist Name"}'`).
 3. Reload **For artists** and upload tracks.
 
-Sign in as a second name in another browser to listen as a fan. **My bill** shows where each penny went, and **Artist payouts** shows the 90/10 split.
+Sign in as a second user in another browser to listen as a fan. **My bill** shows where each penny went, and **Artist payouts** shows the 90/10 split.
 
 ## How the money works
 

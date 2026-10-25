@@ -14,6 +14,7 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic.db")) {
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
+      password_hash TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     -- An artist is a real person or band, verified by the platform before releasing.
@@ -58,6 +59,9 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic.db")) {
       UNIQUE (track_id, owner_id)
     );
   `);
+  // Databases created before passwords were added.
+  const cols = db.prepare(`PRAGMA table_info(users)`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === "password_hash")) db.exec(`ALTER TABLE users ADD COLUMN password_hash TEXT`);
   return db;
 }
 

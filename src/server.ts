@@ -21,7 +21,16 @@ app.use(express.static(path.resolve("public")));
 type User = { id: number; name: string };
 type Authed = Request & { user: User };
 
-// Demo sign-in: pick a name. Good enough for a proof of concept, not for real money.
+// Demo sign-in: a name and a password, set the first time the name is used.
+// Good enough for a public demo, not for real money.
+function hashPassword(password: string, salt = crypto.randomBytes(16).toString("hex")) {
+  return `${salt}:${crypto.scryptSync(password, salt, 32).toString("hex")}`;
+}
+function checkPassword(password: string, stored: string) {
+  const [salt, hash] = stored.split(":");
+  return crypto.timingSafeEqual(Buffer.from(hash, "hex"), crypto.scryptSync(password, salt, 32));
+}
+
 function auth(req: Request, res: Response, next: NextFunction) {
   const id = Number(req.signedCookies.uid);
   const user = id ? (db.prepare(`SELECT id, name FROM users WHERE id = ?`).get(id) as User | undefined) : undefined;
@@ -40,8 +49,17 @@ app.get("/api/config", (_req, res) =>
 
 app.post("/api/login", (req, res) => {
   const name = String(req.body?.name ?? "").trim().slice(0, 40);
+  const password = String(req.body?.password ?? "");
   if (!name) return res.status(400).json({ error: "name required" });
-  db.prepare(`INSERT OR IGNORE INTO users (name) VALUES (?)`).run(name);
+  if (password.length < 6) return res.status(400).json({ error: "password must be at least 6 characters" });
+  const existing = db.prepare(`SELECT id, name, password_hash FROM users WHERE name = ?`).get(name) as
+    | (User & { password_hash: string | null })
+    | undefined;
+  if (existing?.password_hash && !checkPassword(password, existing.password_hash))
+    return res.status(401).json({ error: "wrong password for that name" });
+  if (existing && !existing.password_hash)
+    db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hashPassword(password), existing.id);
+  if (!existing) db.prepare(`INSERT INTO users (name, password_hash) VALUES (?, ?)`).run(name, hashPassword(password));
   const user = db.prepare(`SELECT id, name FROM users WHERE name = ?`).get(name) as User;
   res.cookie("uid", String(user.id), { signed: true, httpOnly: true, sameSite: "lax" });
   res.json(user);

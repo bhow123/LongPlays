@@ -30,7 +30,10 @@ async function boot() {
 
 $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  await api("/api/login", { method: "POST", body: { name: new FormData(e.target).get("name") } });
+  const f = new FormData(e.target);
+  try {
+    await api("/api/login", { method: "POST", body: { name: f.get("name"), password: f.get("password") } });
+  } catch (err) { return alert(err.message); }
   boot();
 });
 
