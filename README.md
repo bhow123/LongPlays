@@ -39,7 +39,7 @@ Streaming pays artists fractions of a penny per play, and fans own nothing. Buyi
 - A subscription makes buying a habit, like a record club.
 - **The artist gets 90% of the money** for their album (after VAT).
 - **There's a real artist behind every release.** Only verified artists can release music.
-- Copy owners form a **community** around each album. That part isn't built yet.
+- Copy owners form a **community** around each album: an owners-only room, perks for low copy numbers, listening parties, and a public **record shelf** on every fan's profile.
 
 ## The model today
 
@@ -55,6 +55,11 @@ Streaming pays artists fractions of a penny per play, and fans own nothing. Buyi
 | Copies | Each purchase gets the next number for that album (#1, #2, #3…). Unlimited copies, one per person, **no resale** |
 | Artist share | **90% of the price after VAT.** A £5 album is 83p VAT plus £4.17 net. The artist gets **£3.75** and the platform 42p, whether the fan used a credit or paid cash |
 | Unspent credits | The subscription money behind them is **held**, not paid to anyone, until the credits are used |
+| Record shelf | Every fan has a public profile (`#fan/<name>`) showing the albums they own, with copy numbers, and receipts of which artists they've backed |
+| Owners' room | Each album has a feed that only its copy owners and its artist can read or post in. Posts show the author's copy number |
+| Owner perks | The artist can post perks such as presale codes or demos, optionally only for copies up to a number (for example the first 100 owners). Everyone else sees them locked |
+| Listening parties | The artist can schedule one in the room. Fans outside the room see the date as a teaser |
+| Discovery | Each album shows what its owners also own |
 
 ## Decisions and why
 
@@ -65,6 +70,7 @@ These came from the project owner, Ben, and from the concept doc. Please keep th
 - **Each sale belongs to the artist whose album was bought.** There is no pool split by market share as on Spotify. A credit pays the artist when it's spent on their album.
 - **Numbered copies are unlimited, with no resale.** Every buyer gets the next number, so scarcity never pushes prices up and there's no speculation. A copy belongs to one person, like a CD that two people can't both own.
 - **Verified real artists only.** The rule against "AI slop" is about having **a real artist behind each release**, not about whether AI was used. AI is treated like sampling: allowed, but it should be credited (there's a credits field on every album).
+- **Community is for owners only.** Owning a copy is the way in, which keeps out bots and drive-by trolls, and the copy number shows when you joined. Low numbers can be rewarded with perks.
 - **Fans never see crypto.** If numbered copies are minted as NFTs later, they should be non-transferable and invisible to fans, and exist only so fans keep proof of ownership and a download if the service shuts down. Tradeable royalty tokens are out, because of FCA rules and because they turn fans into speculators.
 - **Open source and public.** This is a proof of concept for others to learn from and build on.
 
@@ -99,7 +105,8 @@ npm run dev                              # restarts on file changes
    ```
 3. **Release an album.** Reload **For artists**, give it a title, optional square cover art and credits, and select all its tracks at once. Tracks are ordered by file name, so number them (`01 Intro.mp3`, `02 …`). A leading track number is removed from the displayed title.
 4. **Be a fan.** In another browser or a private window, sign in as someone else. Preview tracks, subscribe under **My plan** (no real payment is taken), and buy albums. The first two use credits and the next costs £5.
-5. **Check the money.** **My plan** shows credits and what each album paid its artist. **Artist payouts** shows sales, VAT, artist and platform amounts for the month, plus any money held for unspent credits.
+5. **Join the community.** Open an album you own and switch to **Owners' room** to post. As the artist, you can also post owner perks and listening parties there. Tap your avatar to see your record shelf, and tap any owner's name to see theirs.
+6. **Check the money.** **My plan** shows credits and what each album paid its artist. **Where the money goes** shows sales, VAT, artist and platform amounts for the month, plus any money held for unspent credits.
 
 ### Environment variables
 
@@ -118,14 +125,16 @@ Deliberately small, with no build step, so anyone can read it in one sitting.
 src/
   server.ts         Express app: auth, routes, uploads, admin
   money.ts          All pricing, credit, purchase and payout rules (pure functions over the DB)
+  community.ts      Record shelves, owners' rooms (access, posts, perks, parties) and "owners also own"
   db.ts             SQLite schema, created on start
   verify-artist.ts  CLI: mark an artist as verified
 public/
   index.html        Single page shell
-  app.js            Vanilla JS UI: albums grid and album sheet, player, collection, plan, payouts, artist area
+  app.js            Vanilla JS UI: albums grid and album sheet (tracks / owners' room), player, collection, community, record shelves, plan, payouts, artist area
   style.css         Design tokens, light and dark themes, layout
 test/
   money.test.ts     node:test tests for money.ts against an in-memory DB
+  community.test.ts Tests for community.ts
 ```
 
 - **Runtime:** Node 22 with TypeScript run directly by `tsx` (no compile step). `tsc` is only used for type-checking.
@@ -167,6 +176,7 @@ SQLite tables, defined in [`src/db.ts`](src/db.ts):
 | `credit_ledger` | +2 for each billed month and −1 for each album bought with a credit. The balance is the sum |
 | `payments` | Money in: `subscription` (£10) and `album` (£5 cash purchases) |
 | `plays` | Owners' listens, for play counts |
+| `posts` | Owners' room posts: `kind` is `post`, `perk` (with optional `max_number`) or `party` (with `starts_at`) |
 
 Months are stored as `YYYY-MM` strings (UTC). The database file is `ownmusic-v2.db`. The earlier per-track version used `ownmusic.db`, which is left alone and unused. There are no migrations yet. If you change the schema, either add an `ALTER TABLE` step in `openDb` or bump the file name.
 
@@ -186,6 +196,11 @@ JSON in and out. "Auth" means it needs the session cookie from `/api/login`.
 | `POST /api/albums/:id/buy` | ✓ | Buy the next copy: returns `{number, paidWith, alreadyOwned}` |
 | `GET /api/albums/:id/owners` | | Copy numbers and owner names |
 | `GET /api/albums/:id/cover` | | The album's cover image (404 if none) |
+| `GET /api/fans/:name` | | A fan's record shelf: copies owned, artists backed, and their artist name if they have one |
+| `GET /api/albums/:id/also` | | Albums that this album's owners also own, most shared first |
+| `GET /api/albums/:id/room` | ✓ owner or artist | The owners' room feed (403 with a teaser of owners, posts, perks and the next party otherwise) |
+| `POST /api/albums/:id/room` `{body, kind?, maxNumber?, startsAt?}` | ✓ owner or artist | Post. Only the artist can use `kind` `perk` or `party` |
+| `GET /api/rooms` | ✓ | Rooms you can enter (albums you own or made), with the latest activity |
 | `GET /api/account` | ✓ | Subscription status, credits, total paid and purchases |
 | `POST /api/subscription` / `DELETE /api/subscription` | ✓ | Subscribe or cancel |
 | `GET /api/payouts?month=YYYY-MM` | | Per-artist sales, VAT, artist and platform amounts, plus money held for unspent credits |
@@ -226,13 +241,13 @@ Roughly in order:
 3. **Server-side preview clips**, so non-owners can't fetch full files.
 4. **Real accounts:** email sign-in, password reset and rate limiting.
 5. **Editing albums after release:** track titles, order and cover art.
-6. **Owner communities:** pages for each album's copy owners, and messages from the artist to owners.
+6. **More community:** live chat and audio for listening parties, notifications, moderation tools, and following other fans' shelves.
 7. **Optional NFT minting** of copies as non-transferable tokens, with crypto hidden from fans, so ownership survives the service.
 
 ## Contributing
 
 Issues and pull requests are welcome. A few conventions:
 
-- Keep money maths in `src/money.ts`, in integer pence, with a test for every rule.
+- Keep money maths in `src/money.ts`, in integer pence, with a test for every rule. Community rules go in `src/community.ts`.
 - Run `npm test` and `npm run typecheck` before opening a pull request.
 - If you change a [decision](#decisions-and-why) or settle an [open question](#open-questions), update this README in the same pull request.
