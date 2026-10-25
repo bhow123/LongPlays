@@ -83,11 +83,12 @@ app.get("/api/albums", (req, res) => {
     .prepare(
       `SELECT al.id, al.title, al.credits, ar.name AS artist, ar.bio AS artistBio, al.cover_file IS NOT NULL AS hasCover,
               (SELECT COUNT(*) FROM copies c WHERE c.album_id = al.id) AS copiesSold,
-              (SELECT number FROM copies c WHERE c.album_id = al.id AND c.owner_id = ?) AS myCopy
+              (SELECT number FROM copies c WHERE c.album_id = al.id AND c.owner_id = ?) AS myCopy,
+              (ar.user_id = ?) AS isMine
        FROM albums al JOIN artists ar ON ar.id = al.artist_id
        WHERE ar.verified = 1 ORDER BY al.created_at DESC, al.id DESC`,
     )
-    .all(uid) as { id: number }[];
+    .all(uid, uid) as { id: number }[];
   const tracks = db.prepare(
     `SELECT t.id, t.title, t.position, (SELECT COUNT(*) FROM plays p WHERE p.track_id = t.id) AS plays
      FROM tracks t WHERE t.album_id = ? ORDER BY t.position`,
@@ -118,9 +119,13 @@ app.post("/api/tracks/:id/plays", auth, (req, res) => {
   const trackId = Number(req.params.id);
   const t = db.prepare(`SELECT album_id FROM tracks WHERE id = ?`).get(trackId) as { album_id: number } | undefined;
   if (!t) return res.sendStatus(404);
-  const owned = ownsAlbum(db, user.id, t.album_id);
-  if (owned) logPlay(db, user.id, trackId);
-  res.json({ owned, previewSeconds: owned ? null : PREVIEW_SECONDS });
+  // Owners and the album's own artist hear every track in full.
+  const isArtist = !!db
+    .prepare(`SELECT 1 FROM albums al JOIN artists ar ON ar.id = al.artist_id WHERE al.id = ? AND ar.user_id = ?`)
+    .get(t.album_id, user.id);
+  const owned = isArtist || ownsAlbum(db, user.id, t.album_id);
+  if (owned && !isArtist) logPlay(db, user.id, trackId);
+  res.json({ owned, isArtist, previewSeconds: owned ? null : PREVIEW_SECONDS });
 });
 
 app.post("/api/albums/:id/buy", auth, (req, res) => {

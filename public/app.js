@@ -160,7 +160,7 @@ async function albums() {
           <div class="record" style="--disc:${discColor(a.id, a.title)}">
             <div class="vinyl"></div>
             ${cover(a.id, a.title, a.hasCover)}
-            ${a.myCopy ? `<span class="stamp">${copyNo(a.myCopy)}</span>` : ""}
+            ${a.myCopy ? `<span class="stamp">${copyNo(a.myCopy)}</span>` : a.isMine ? `<span class="stamp">Yours</span>` : ""}
           </div>
           <h3>${esc(a.title)}</h3>
           <div class="muted">${esc(a.artist)}</div>
@@ -186,14 +186,16 @@ async function openAlbum(id, pane = "tracks") {
       <div class="record" style="--disc:${discColor(a.id, a.title)}">
         <div class="vinyl"></div>
         ${cover(a.id, a.title, a.hasCover)}
-        ${a.myCopy ? `<span class="stamp">${copyNo(a.myCopy)}</span>` : ""}
+        ${a.myCopy ? `<span class="stamp">${copyNo(a.myCopy)}</span>` : a.isMine ? `<span class="stamp">Yours</span>` : ""}
       </div>
       <div>
         <p class="eyebrow">Album · ${plural(a.tracks.length, "track")}</p>
         <h2 id="sheet-title">${esc(a.title)}</h2>
         <p class="by">${esc(a.artist)}</p>
         <div class="buy-row">
-          ${a.myCopy
+          ${a.isMine
+            ? `<div class="owned-badge"><span class="muted small">Your release</span><strong>${plural(a.copiesSold, "owner")}</strong></div>`
+            : a.myCopy
             ? `<div class="owned-badge"><span class="muted small">You own copy</span><strong>${copyNo(a.myCopy)}</strong></div>`
             : `<button class="btn btn-primary" data-buy="${a.id}">Own copy ${copyNo(a.copiesSold + 1)} · ${account.credits > 0 ? "1 credit" : gbp(config.albumPrice)}</button>
                <span class="muted small">${gbp(config.artistPerAlbum)} goes to ${esc(a.artist)}</span>`}
@@ -202,7 +204,7 @@ async function openAlbum(id, pane = "tracks") {
     </div>
     <div class="seg" role="tablist">
       <button data-pane="tracks" class="${pane === "tracks" ? "on" : ""}">Tracks</button>
-      <button data-pane="room" class="${pane === "room" ? "on" : ""}">Owners' room ${a.myCopy ? "" : "🔒"}</button>
+      <button data-pane="room" class="${pane === "room" ? "on" : ""}">Owners' room ${a.myCopy || a.isMine ? "" : "🔒"}</button>
     </div>
     <div data-pane-body="room" ${pane === "room" ? "" : "hidden"}><div id="room"></div></div>
     <div data-pane-body="tracks" ${pane === "tracks" ? "" : "hidden"}>
@@ -210,8 +212,8 @@ async function openAlbum(id, pane = "tracks") {
       ${a.tracks.map((t) => `
         <li data-track-row="${t.id}" class="${current?.trackId === t.id ? "playing" : ""}">
           <span class="n">${t.position}</span>
-          <span><span class="t">${esc(t.title)}</span><br /><span class="p">${a.myCopy ? plural(t.plays, "play") : `${config.previewSeconds}s preview`}</span></span>
-          <button class="track-btn ${a.myCopy ? "own" : ""}" data-play="${t.id}" aria-label="${a.myCopy ? "Play" : "Preview"} ${esc(t.title)}">▶</button>
+          <span><span class="t">${esc(t.title)}</span><br /><span class="p">${a.myCopy || a.isMine ? plural(t.plays, "play") : `${config.previewSeconds}s preview`}</span></span>
+          <button class="track-btn ${a.myCopy || a.isMine ? "own" : ""}" data-play="${t.id}" aria-label="${a.myCopy || a.isMine ? "Play" : "Preview"} ${esc(t.title)}">▶</button>
         </li>`).join("")}
     </ol>
     ${a.credits ? `<div class="credits-note"><strong>Credits</strong>\n${esc(a.credits)}</div>` : ""}
@@ -363,7 +365,7 @@ async function play(trackId, album) {
   $("#now-cover").innerHTML = cover(album.id, album.title, album.hasCover);
   $("#now-title").textContent = t.title;
   $("#now-artist").textContent = `${album.artist} · ${album.title}`;
-  $("#now-badge").innerHTML = r.owned ? `<span class="badge own">${copyNo(album.myCopy)}</span>` : `<span class="badge">Preview</span>`;
+  $("#now-badge").innerHTML = r.isArtist ? `<span class="badge own">Your release</span>` : r.owned ? `<span class="badge own">${copyNo(album.myCopy)}</span>` : `<span class="badge">Preview</span>`;
   $("#preview-mark").hidden = true;
   audio.src = `/api/tracks/${trackId}/audio`;
   audio.play();
