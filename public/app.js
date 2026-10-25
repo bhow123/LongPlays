@@ -182,6 +182,7 @@ async function openAlbum(id, pane = "tracks") {
   const a = catalogue.find((x) => x.id === id);
   if (!a) return;
   const [owners, also] = await Promise.all([api(`/api/albums/${id}/owners`), api(`/api/albums/${id}/also`)]);
+  const playAll = a.tracks.length && justBought !== a.id ? `<button class="btn btn-primary btn-play" data-play="${a.tracks[0].id}">▶ Play album</button>` : "";
   const nowPlayingHere = current && a.tracks.some((t) => t.id === current.trackId) && !audio.paused;
   $("#sheet-content").innerHTML = `
     <div class="album-hero ${nowPlayingHere ? "spinning" : ""}" id="hero">
@@ -197,20 +198,19 @@ async function openAlbum(id, pane = "tracks") {
         <p class="by">${esc(a.artist)}</p>
         ${a.demo ? `<p class="demo-note">This is a demo release by a demo artist, here so you can try OwnMusic. Add a free copy, no subscription needed, and it lands on your record shelf and opens the owners' room.</p>` : ""}
         ${justBought === a.id ? `<div class="next-steps">
-          <strong>${copyNo(a.myCopy)} is yours.</strong>
+          <strong>${copyNo(a.myCopy)} is yours. Every track now plays in full.</strong>
+          <button class="btn btn-primary" data-play="${a.tracks[0]?.id}">▶ Play the full album</button>
           <a class="btn" href="#fan/${encodeURIComponent(me.name)}">See it on your record shelf</a>
           <button class="btn" data-pane="room">Go to the owners' room</button>
         </div>` : ""}
         <div class="buy-row">
           ${a.isMine
-            ? `<div class="owned-badge"><span class="muted small">Your release</span><strong>${plural(a.copiesSold, "owner")}</strong></div>`
+            ? `${playAll}<div class="owned-badge"><span class="muted small">Your release</span><strong>${plural(a.copiesSold, "owner")}</strong></div>`
             : a.myCopy
-            ? `<div class="owned-badge"><span class="muted small">You own copy</span><strong>${copyNo(a.myCopy)}</strong></div>`
-            : a.demo
-            ? `<button class="btn btn-primary" data-buy="${a.id}">Add copy ${copyNo(a.copiesSold + 1)} to my shelf · free</button>
-               <span class="muted small">Demo album: no subscription or payment needed</span>`
-            : `<button class="btn btn-primary" data-buy="${a.id}">Own copy ${copyNo(a.copiesSold + 1)} · ${account.credits > 0 ? "1 credit" : gbp(config.albumPrice)}</button>
-               <span class="muted small">${gbp(config.artistPerAlbum)} goes to ${esc(a.artist)}</span>`}
+            ? `${playAll}<div class="owned-badge"><span class="muted small">You own copy</span><strong>${copyNo(a.myCopy)}</strong></div>`
+            : `<button class="btn btn-primary" data-buy="${a.id}">${a.demo ? `Add copy ${copyNo(a.copiesSold + 1)} to my shelf · free` : `Own copy ${copyNo(a.copiesSold + 1)} · ${account.credits > 0 ? "1 credit" : gbp(config.albumPrice)}`}</button>
+               <button class="btn" data-play="${a.tracks[0]?.id}">▶ Preview ${config.previewSeconds}s</button>
+               <span class="muted small preview-note">${a.demo ? "Demo album: free, no subscription needed." : `${gbp(config.artistPerAlbum)} goes to ${esc(a.artist)}.`} Previews play ${config.previewSeconds} seconds of each track. ${a.demo ? "Add it to your shelf" : "Own a copy"} to hear it all.</span>`}
         </div>
       </div>
     </div>
@@ -224,7 +224,7 @@ async function openAlbum(id, pane = "tracks") {
       ${a.tracks.map((t) => `
         <li data-track-row="${t.id}" class="${current?.trackId === t.id ? "playing" : ""}">
           <span class="n">${t.position}</span>
-          <span><span class="t">${esc(t.title)}</span><br /><span class="p">${a.myCopy || a.isMine ? plural(t.plays, "play") : `${config.previewSeconds}s preview`}</span></span>
+          <span><span class="t">${esc(t.title)}</span><br /><span class="p">${a.myCopy || a.isMine ? `Full track · ${plural(t.plays, "play")}` : `Preview · ${config.previewSeconds}s`}</span></span>
           <button class="track-btn ${a.myCopy || a.isMine ? "own" : ""}" data-play="${t.id}" aria-label="${a.myCopy || a.isMine ? "Play" : "Preview"} ${esc(t.title)}">▶</button>
         </li>`).join("")}
     </ol>
@@ -444,7 +444,7 @@ audio.addEventListener("timeupdate", () => {
   if (current.limit && audio.currentTime >= current.limit) {
     audio.pause();
     audio.currentTime = 0;
-    toast("End of preview. Own the album to hear every track in full.");
+    toast(current.album?.demo ? "End of the preview. Add the album to your shelf, free, to hear it all." : "End of the preview. Own the album to hear every track in full.");
   }
 });
 $("#seek").addEventListener("click", (e) => {

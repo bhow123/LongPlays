@@ -460,3 +460,5 @@ main, .top, .tabs, .landing { padding-left: max(16px, env(safe-area-inset-left))
   border-radius: 12px; background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .next-steps strong { flex-basis: 100%; }
+.btn-play { font-size: 1.05rem; padding: 12px 22px; }
+.preview-note { flex-basis: 100%; }
