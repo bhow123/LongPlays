@@ -179,11 +179,15 @@ export function accountSummary(db: DB, userId: number) {
     | undefined;
   const purchases = db
     .prepare(
-      `SELECT al.title, ar.name AS artist, c.number, c.paid_with AS paidWith, c.value_pence AS value, c.month
+      `SELECT al.id AS albumId, al.title, ar.name AS artist, c.number, c.paid_with AS paidWith, c.value_pence AS value, c.month,
+              c.created_at AS createdAt, al.cover_file IS NOT NULL AS hasCover
        FROM copies c JOIN albums al ON al.id = c.album_id JOIN artists ar ON ar.id = al.artist_id
        WHERE c.owner_id = ? ORDER BY c.id DESC`,
     )
-    .all(userId) as { title: string; artist: string; number: number; paidWith: string; value: number; month: string }[];
+    .all(userId) as {
+      albumId: number; title: string; artist: string; number: number; paidWith: string; value: number;
+      month: string; createdAt: string; hasCover: number;
+    }[];
   const paid = (db.prepare(`SELECT COALESCE(SUM(amount_pence), 0) AS p FROM payments WHERE user_id = ?`).get(userId) as { p: number }).p;
   return {
     subscribed: !!sub?.active,

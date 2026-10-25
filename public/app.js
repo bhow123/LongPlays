@@ -1,6 +1,10 @@
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const gbp = (p) => `£${(p / 100).toFixed(2)}`;
+const copyNo = (n) => `#${String(n).padStart(4, "0")}`;
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const monthName = (ym) => new Date(`${ym}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -13,19 +17,71 @@ async function api(path, opts = {}) {
   return data;
 }
 
+let toastTimer;
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.hidden = true), 3200);
+}
+
+// Generated artwork for albums without a cover: stable per album, so it reads as "the" cover.
+function hash(str) {
+  let h = 2166136261;
+  for (const c of str) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  return h >>> 0;
+}
+function artSvg(id, title) {
+  const h = hash(`${id}:${title}`);
+  const a = h % 360, b = (a + 40 + ((h >>> 8) % 140)) % 360;
+  const c1 = `hsl(${a} 85% 58%)`, c2 = `hsl(${b} 75% 45%)`, c3 = `hsl(${(a + 180) % 360} 90% 88%)`;
+  const v = (h >>> 16) % 4;
+  const x = 20 + ((h >>> 4) % 60), y = 20 + ((h >>> 12) % 60);
+  const shapes = [
+    Array.from({ length: 7 }, (_, i) => `<circle cx="${x}" cy="${y}" r="${88 - i * 12}" fill="none" stroke="${i % 2 ? c3 : c2}" stroke-width="6" opacity="${0.9 - i * 0.08}"/>`).join(""),
+    Array.from({ length: 9 }, (_, i) => `<rect x="${i * 12 - 4}" y="-10" width="6" height="130" fill="${c3}" opacity="0.55" transform="rotate(${(h % 50) - 25} 50 50)"/>`).join(""),
+    `<circle cx="${x}" cy="${y}" r="34" fill="${c3}"/><circle cx="${100 - x}" cy="${100 - y}" r="22" fill="${c2}"/><rect x="0" y="70" width="100" height="30" fill="${c2}" opacity="0.6"/>`,
+    Array.from({ length: 5 }, (_, i) => `<rect x="${10 + i * 6}" y="${10 + i * 6}" width="${80 - i * 12}" height="${80 - i * 12}" fill="none" stroke="${c3}" stroke-width="3" opacity="${0.85 - i * 0.12}" transform="rotate(${i * 9} 50 50)"/>`).join(""),
+  ][v];
+  return `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <defs><linearGradient id="g${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>
+    <rect width="100" height="100" fill="url(#g${id})"/>${shapes}</svg>`;
+}
+const discColor = (id, title) => `hsl(${hash(`${id}:${title}`) % 360} 85% 58%)`;
+const cover = (id, title, hasCover) =>
+  `<div class="cover">${hasCover ? `<img src="/api/albums/${id}/cover" alt="" loading="lazy" />` : artSvg(id, title)}</div>`;
+
 let me = null;
 let config = null;
+let account = null;
+let catalogue = [];
 
 async function boot() {
   config = await api("/api/config");
   try { me = await api("/api/me"); } catch { me = null; }
   $("#login").hidden = !!me;
   $("#tabs").hidden = !me;
-  $("#who").innerHTML = me
-    ? `<span class="muted">Signed in as ${esc(me.name)}</span> <button class="ghost" id="logout">Sign out</button>`
-    : "";
-  $("#logout")?.addEventListener("click", async () => { await api("/api/logout", { method: "POST" }); location.reload(); });
-  if (me) show("albums");
+  if (me) {
+    await refreshAccount();
+    show(location.hash.slice(1) || "albums");
+  } else {
+    document.querySelectorAll("[data-panel]").forEach((p) => (p.hidden = true));
+    $("#who").innerHTML = "";
+  }
+}
+
+async function refreshAccount() {
+  account = await api("/api/account");
+  $("#who").innerHTML = `
+    <span class="chip" title="Album credits"><span class="dot"></span>${plural(account.credits, "credit")}</span>
+    <button class="avatar" id="logout" title="Signed in as ${esc(me.name)}. Click to sign out.">${esc(me.name.slice(0, 1).toUpperCase())}</button>`;
+  $("#logout").addEventListener("click", async () => {
+    if (!confirm(`Sign out ${me.name}?`)) return;
+    await api("/api/logout", { method: "POST" });
+    location.hash = "";
+    location.reload();
+  });
 }
 
 $("#login-form").addEventListener("submit", async (e) => {
@@ -33,7 +89,7 @@ $("#login-form").addEventListener("submit", async (e) => {
   const f = new FormData(e.target);
   try {
     await api("/api/login", { method: "POST", body: { name: f.get("name"), password: f.get("password") } });
-  } catch (err) { return alert(err.message); }
+  } catch (err) { return toast(err.message); }
   boot();
 });
 
@@ -41,160 +97,378 @@ $("#tabs").addEventListener("click", (e) => {
   const tab = e.target.dataset?.tab;
   if (tab) show(tab);
 });
-
-function show(tab) {
-  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
-  document.querySelectorAll("[data-panel]").forEach((p) => (p.hidden = p.dataset.panel !== tab));
-  ({ albums, collection, plan, payouts, artist })[tab]();
-}
-
-const trackRow = (t, owned) => `
-  <li><span>${t.position}. ${esc(t.title)} <span class="muted">· ${t.plays} ${t.plays === 1 ? "play" : "plays"}</span></span>
-  <button class="${owned ? "" : "ghost"}" data-play="${t.id}" data-title="${esc(t.title)}">${owned ? "Play" : "Preview"}</button></li>`;
-
-async function albums() {
-  const [list, acc] = await Promise.all([api("/api/albums"), api("/api/account")]);
-  $("#credits-bar").innerHTML = acc.subscribed || acc.credits
-    ? `<p><span class="pill">${acc.credits} album ${acc.credits === 1 ? "credit" : "credits"}</span>
-       <span class="muted">${acc.subscribed ? `+${config.creditsPerMonth} every month, unused ones roll over` : "subscription cancelled"}</span></p>`
-    : `<p class="muted">Subscribe for ${gbp(config.subscription)}/month to get ${config.creditsPerMonth} albums a month, or buy any album for ${gbp(config.albumPrice)}. <button class="ghost" data-goto="plan">See plans</button></p>`;
-  $("#albums").innerHTML = list.length
-    ? list.map((a) => `
-      <li class="card album" data-artist="${esc(a.artist)}">
-        <div class="album-head">
-          <div>
-            <h3>${esc(a.title)}</h3>
-            <div class="muted">${esc(a.artist)} · ${a.tracks.length} ${a.tracks.length === 1 ? "track" : "tracks"} · ${a.copiesSold} ${a.copiesSold === 1 ? "copy" : "copies"} owned</div>
-            ${a.credits ? `<div class="muted">${esc(a.credits)}</div>` : ""}
-          </div>
-          ${a.myCopy
-            ? `<span class="copy-no" title="Your copy">Copy #${a.myCopy}</span>`
-            : `<button data-buy="${a.id}">Own copy #${a.copiesSold + 1} · ${acc.credits > 0 ? "1 credit" : gbp(config.albumPrice)}</button>`}
-        </div>
-        <ul class="tracklist">${a.tracks.map((t) => trackRow(t, !!a.myCopy)).join("")}</ul>
-      </li>`).join("")
-    : `<li class="muted">No albums yet. Verified artists can release one from "For artists".</li>`;
-}
-
 document.addEventListener("click", (e) => {
   const goto = e.target.closest?.("[data-goto]")?.dataset.goto;
-  if (goto) show(goto);
+  if (goto) { closeSheet(); show(goto); }
 });
 
-$("#albums").addEventListener("click", async (e) => {
+const views = { albums, collection, plan, payouts, artist };
+function show(tab) {
+  if (!views[tab]) tab = "albums";
+  history.replaceState(null, "", `#${tab}`);
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  document.querySelectorAll("[data-panel]").forEach((p) => (p.hidden = p.dataset.panel !== tab));
+  views[tab]();
+}
+
+/* ---------- Albums ---------- */
+
+async function albums() {
+  catalogue = await api("/api/albums");
+  const credits = account.credits;
+  $("#credits-bar").innerHTML = account.subscribed || credits
+    ? `<div class="banner">
+        <div>
+          <h3>${credits ? `You have ${plural(credits, "album")} to claim` : "All credits spent"}</h3>
+          <p class="muted small">${account.subscribed ? `+${config.creditsPerMonth} every month. Unused credits roll over.` : "Subscription paused. Your credits are still yours."}</p>
+          <div class="tokens">${Array.from({ length: Math.min(credits, 12) }, () => `<span class="token" title="1 album credit"></span>`).join("")}</div>
+        </div>
+        <button class="btn" data-goto="plan">My plan</button>
+      </div>`
+    : `<div class="banner">
+        <div>
+          <h3>${gbp(config.subscription)} a month = ${config.creditsPerMonth} albums you keep</h3>
+          <p class="muted small">Or buy any album for ${gbp(config.albumPrice)}. ${gbp(config.artistPerAlbum)} of every album goes to the artist.</p>
+        </div>
+        <button class="btn btn-primary" data-goto="plan">Start subscription</button>
+      </div>`;
+  $("#albums").innerHTML = catalogue.length
+    ? catalogue.map((a) => `
+      <li>
+        <button class="album-card" data-album="${a.id}">
+          <div class="record" style="--disc:${discColor(a.id, a.title)}">
+            <div class="vinyl"></div>
+            ${cover(a.id, a.title, a.hasCover)}
+            ${a.myCopy ? `<span class="stamp">${copyNo(a.myCopy)}</span>` : ""}
+          </div>
+          <h3>${esc(a.title)}</h3>
+          <div class="muted">${esc(a.artist)}</div>
+          <div class="owners">${plural(a.copiesSold, "owner")} · ${plural(a.tracks.length, "track")}</div>
+        </button>
+      </li>`).join("")
+    : `<li class="empty">No albums yet. Verified artists can release one from <a href="#artist" data-goto="artist">For artists</a>.</li>`;
+}
+
+$("#albums").addEventListener("click", (e) => {
+  const id = e.target.closest("[data-album]")?.dataset.album;
+  if (id) openAlbum(Number(id));
+});
+
+async function openAlbum(id) {
+  const a = catalogue.find((x) => x.id === id) ?? (await api("/api/albums")).find((x) => x.id === id);
+  if (!a) return;
+  const owners = await api(`/api/albums/${id}/owners`);
+  const nowPlayingHere = current && a.tracks.some((t) => t.id === current.trackId) && !audio.paused;
+  $("#sheet-content").innerHTML = `
+    <div class="album-hero ${nowPlayingHere ? "spinning" : ""}" id="hero">
+      <div class="record" style="--disc:${discColor(a.id, a.title)}">
+        <div class="vinyl"></div>
+        ${cover(a.id, a.title, a.hasCover)}
+        ${a.myCopy ? `<span class="stamp">${copyNo(a.myCopy)}</span>` : ""}
+      </div>
+      <div>
+        <p class="eyebrow">Album · ${plural(a.tracks.length, "track")}</p>
+        <h2 id="sheet-title">${esc(a.title)}</h2>
+        <p class="by">${esc(a.artist)}</p>
+        <div class="buy-row">
+          ${a.myCopy
+            ? `<div class="owned-badge"><span class="muted small">You own copy</span><strong>${copyNo(a.myCopy)}</strong></div>`
+            : `<button class="btn btn-primary" data-buy="${a.id}">Own copy ${copyNo(a.copiesSold + 1)} · ${account.credits > 0 ? "1 credit" : gbp(config.albumPrice)}</button>
+               <span class="muted small">${gbp(config.artistPerAlbum)} goes to ${esc(a.artist)}</span>`}
+        </div>
+      </div>
+    </div>
+    <ol class="tracklist">
+      ${a.tracks.map((t) => `
+        <li data-track-row="${t.id}" class="${current?.trackId === t.id ? "playing" : ""}">
+          <span class="n">${t.position}</span>
+          <span><span class="t">${esc(t.title)}</span><br /><span class="p">${a.myCopy ? plural(t.plays, "play") : `${config.previewSeconds}s preview`}</span></span>
+          <button class="track-btn ${a.myCopy ? "own" : ""}" data-play="${t.id}" aria-label="${a.myCopy ? "Play" : "Preview"} ${esc(t.title)}">▶</button>
+        </li>`).join("")}
+    </ol>
+    ${a.credits ? `<div class="credits-note"><strong>Credits</strong>\n${esc(a.credits)}</div>` : ""}
+    <div style="margin-top:22px">
+      <p class="eyebrow">Copy owners</p>
+      <div class="owner-list">${owners.length ? owners.map((o) => `<span>${copyNo(o.number)} ${esc(o.name)}</span>`).join("") : `<span>No owners yet. Be ${copyNo(1)}.</span>`}</div>
+    </div>`;
+  const wasOpen = !$("#sheet").hidden && $("#sheet").dataset.album === String(id);
+  $("#sheet").hidden = false;
+  $("#sheet").dataset.album = id;
+  if (!wasOpen) $(".sheet-body").scrollTop = 0;
+  document.body.style.overflow = "hidden";
+}
+
+function closeSheet() {
+  $("#sheet").hidden = true;
+  document.body.style.overflow = "";
+}
+$("#sheet").addEventListener("click", async (e) => {
+  if (e.target.closest("[data-close]")) return closeSheet();
   const b = e.target.closest("button");
   if (!b) return;
-  if (b.dataset.play) play(b.dataset.play, b.dataset.title, b.closest(".album").dataset.artist);
+  const album = catalogue.find((x) => x.id === Number($("#sheet").dataset.album));
+  if (b.dataset.play) play(Number(b.dataset.play), album);
   if (b.dataset.buy) {
-    const r = await api(`/api/albums/${b.dataset.buy}/buy`, { method: "POST" });
-    alert(`You own copy #${r.number}${r.paidWith === "credit" ? ", paid with 1 credit" : `, for ${gbp(config.albumPrice)}`}. Play it as often as you like.`);
-    albums();
+    b.disabled = true;
+    try {
+      const r = await api(`/api/albums/${b.dataset.buy}/buy`, { method: "POST" });
+      toast(`You own ${copyNo(r.number)} of ${album.title}${r.paidWith === "credit" ? " · 1 credit used" : ` · ${gbp(config.albumPrice)}`}`);
+      await refreshAccount();
+      await albums();
+      openAlbum(album.id);
+    } catch (err) { toast(err.message); b.disabled = false; }
   }
 });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#sheet").hidden) closeSheet(); });
 
-// Player: owners hear whole tracks; everyone else gets a preview.
+/* ---------- Player ---------- */
+
 const audio = $("#audio");
-let previewLimit = null;
+let current = null;
 
-async function play(trackId, title, artist) {
+async function play(trackId, album) {
+  if (current?.trackId === trackId) return toggle();
   const r = await api(`/api/tracks/${trackId}/plays`, { method: "POST" });
-  previewLimit = r.previewSeconds;
+  const t = album.tracks.find((x) => x.id === trackId);
+  current = { trackId, albumId: album.id, owned: r.owned, limit: r.previewSeconds };
   $("#player").hidden = false;
-  $("#now-title").textContent = title;
-  $("#now-artist").textContent = artist;
-  $("#play-status").textContent = r.owned ? "Your copy: unlimited plays" : `${r.previewSeconds}-second preview. Own the album to hear it all.`;
+  $("#now-cover").innerHTML = cover(album.id, album.title, album.hasCover);
+  $("#now-title").textContent = t.title;
+  $("#now-artist").textContent = `${album.artist} · ${album.title}`;
+  $("#now-badge").innerHTML = r.owned ? `<span class="badge own">${copyNo(album.myCopy)}</span>` : `<span class="badge">Preview</span>`;
+  $("#preview-mark").hidden = true;
   audio.src = `/api/tracks/${trackId}/audio`;
   audio.play();
+  highlightTrack();
 }
 
+function toggle() { audio.paused ? audio.play() : audio.pause(); }
+$("#toggle").addEventListener("click", toggle);
+
+function highlightTrack() {
+  document.querySelectorAll("[data-track-row]").forEach((li) => li.classList.toggle("playing", Number(li.dataset.trackRow) === current?.trackId));
+  const hero = $("#hero");
+  if (hero) hero.classList.toggle("spinning", !audio.paused && Number($("#sheet").dataset.album) === current?.albumId);
+}
+
+audio.addEventListener("play", () => { $("#toggle").textContent = "❚❚"; $("#toggle").ariaLabel = "Pause"; highlightTrack(); });
+audio.addEventListener("pause", () => { $("#toggle").textContent = "▶"; $("#toggle").ariaLabel = "Play"; highlightTrack(); });
 audio.addEventListener("timeupdate", () => {
-  if (previewLimit !== null && audio.currentTime >= previewLimit) {
+  if (!current) return;
+  const length = current.limit ? Math.min(current.limit, audio.duration || current.limit) : audio.duration || 0;
+  $("#progress").style.width = `${length ? Math.min(100, (audio.currentTime / length) * 100) : 0}%`;
+  $("#now-time").textContent = current.limit
+    ? `${fmtTime(audio.currentTime)} / ${fmtTime(length)}`
+    : fmtTime(Math.max(0, (audio.duration || 0) - audio.currentTime));
+  if (current.limit && audio.currentTime >= current.limit) {
     audio.pause();
     audio.currentTime = 0;
-    $("#play-status").textContent = "End of preview. Own the album to hear the whole track.";
+    toast("End of preview. Own the album to hear every track in full.");
   }
 });
+$("#seek").addEventListener("click", (e) => {
+  if (!current || !audio.duration) return;
+  const r = e.currentTarget.getBoundingClientRect();
+  const length = current.limit ? Math.min(current.limit, audio.duration) : audio.duration;
+  audio.currentTime = ((e.clientX - r.left) / r.width) * length;
+});
+
+/* ---------- Collection ---------- */
 
 async function collection() {
-  const acc = await api("/api/account");
-  $("#collection").innerHTML = acc.purchases.length
-    ? acc.purchases.map((c) => `
-      <li class="card">
-        <div><h3>${esc(c.title)} <span class="copy-no">#${c.number}</span></h3>
-        <div class="muted">${esc(c.artist)} · owned since ${esc(c.month)}</div></div>
-      </li>`).join("") + `<li class="muted">Play your albums from the Albums tab.</li>`
-    : `<li class="muted">You don't own any albums yet. Each copy is numbered, belongs only to you, and is yours to play forever.</li>`;
+  await refreshAccount();
+  const p = account.purchases;
+  $("#collection").innerHTML = `
+    <div class="section-head">
+      <div><h2>My collection</h2><p>${p.length ? `${plural(p.length, "album")}, numbered and yours to keep.` : ""}</p></div>
+    </div>
+    ${p.length
+      ? `<div class="certs">${p.map((c) => `
+        <button class="cert" data-album="${c.albumId}">
+          ${cover(c.albumId, c.title, c.hasCover)}
+          <div>
+            <div class="label">Certificate of ownership</div>
+            <div class="num">${copyNo(c.number)}</div>
+            <div><strong>${esc(c.title)}</strong> <span class="muted">· ${esc(c.artist)}</span></div>
+            <div class="serial">OM-${String(c.albumId).padStart(4, "0")}-${String(c.number).padStart(4, "0")} · ${esc(me.name)} · ${esc(monthName(c.month))}</div>
+          </div>
+        </button>`).join("")}</div>`
+      : `<div class="empty">No albums yet. Every album you buy gets a numbered certificate here. <br /><br /><button class="btn btn-primary" data-goto="albums">Browse albums</button></div>`}`;
 }
+$("#collection").addEventListener("click", async (e) => {
+  const id = e.target.closest("[data-album]")?.dataset.album;
+  if (!id) return;
+  catalogue = await api("/api/albums");
+  openAlbum(Number(id));
+});
+
+/* ---------- Plan ---------- */
 
 async function plan() {
-  const acc = await api("/api/account");
+  await refreshAccount();
+  const acc = account;
   $("#plan").innerHTML = `
-    <h2>My plan</h2>
-    ${acc.subscribed
-      ? `<p>Subscribed since ${esc(acc.since)}: <strong>${gbp(config.subscription)}/month</strong>, ${config.creditsPerMonth} album credits a month.</p>
-         <button class="ghost" id="cancel">Cancel subscription</button> <span class="muted">You keep any credits you've earned.</span>`
-      : `<p><strong>${gbp(config.subscription)}/month</strong> gets you ${config.creditsPerMonth} album credits every month. Unused credits roll over, and you can buy extra albums for ${gbp(config.albumPrice)} each.</p>
-         <button id="subscribe">Subscribe (demo, no real payment)</button>`}
-    <p><span class="pill">${acc.credits} album ${acc.credits === 1 ? "credit" : "credits"} available</span></p>
-    <h2>Purchases</h2>
-    <p class="muted">Total paid so far: ${gbp(acc.totalPaid)}</p>
-    <table>
-      <tr><th>Album</th><th>Artist</th><th class="n">Copy</th><th>Paid with</th><th class="n">Artist gets</th></tr>
-      ${acc.purchases.map((r) => `<tr><td>${esc(r.title)}</td><td>${esc(r.artist)}</td><td class="n">#${r.number}</td><td>${r.paidWith === "credit" ? "1 credit" : gbp(r.value)}</td><td class="n">${gbp(r.toArtist)}</td></tr>`).join("")
-        || `<tr><td colspan="5" class="muted">No albums yet.</td></tr>`}
-    </table>`;
-  $("#subscribe")?.addEventListener("click", async () => { await api("/api/subscription", { method: "POST" }); plan(); });
-  $("#cancel")?.addEventListener("click", async () => { await api("/api/subscription", { method: "DELETE" }); plan(); });
+    <div class="plan-grid">
+      <div class="plan-card">
+        <p class="eyebrow">${acc.subscribed ? `Member since ${esc(monthName(acc.since))}` : "The record club"}</p>
+        <div class="price">${gbp(config.subscription)}<small> / month</small></div>
+        <ul>
+          <li>${config.creditsPerMonth} albums to keep, every month</li>
+          <li>Unused credits roll over and never expire</li>
+          <li>Extra albums ${gbp(config.albumPrice)} each</li>
+          <li>${gbp(config.artistPerAlbum)} of every album goes to the artist</li>
+        </ul>
+        ${acc.subscribed
+          ? `<button class="btn ghost" id="cancel">Cancel subscription</button>`
+          : `<button class="btn" id="subscribe">Subscribe · demo, no real payment</button>`}
+      </div>
+      <div class="panel">
+        <p class="eyebrow">Album credits</p>
+        <div class="credit-count">${acc.credits}</div>
+        <div class="tokens">${Array.from({ length: Math.min(acc.credits, 24) }, () => `<span class="token"></span>`).join("")}</div>
+        <p class="muted small" style="margin-top:10px">${acc.subscribed ? `+${config.creditsPerMonth} on the 1st of each month.` : acc.credits ? "Your subscription is off, but these credits are still yours." : "Subscribe to get credits, or buy albums one at a time."}</p>
+        <ul class="rows">
+          <li><span>Paid so far</span><span class="r">${gbp(acc.totalPaid)}</span></li>
+          <li><span>Albums owned</span><span class="r">${acc.purchases.length}</span></li>
+          <li><span>Sent to artists</span><span class="r">${gbp(acc.purchases.reduce((s, p) => s + p.toArtist, 0))}</span></li>
+        </ul>
+      </div>
+    </div>
+    ${acc.purchases.length ? `
+      <h2 style="margin:28px 0 4px">Purchases</h2>
+      <ul class="rows">${acc.purchases.map((r) => `
+        <li><span><strong>${esc(r.title)}</strong> <span class="muted">· ${esc(r.artist)} · ${copyNo(r.number)}</span></span>
+        <span class="r">${r.paidWith === "credit" ? "1 credit" : gbp(r.value)} → ${gbp(r.toArtist)} to artist</span></li>`).join("")}
+      </ul>` : ""}`;
+  $("#subscribe")?.addEventListener("click", async () => {
+    await api("/api/subscription", { method: "POST" });
+    toast(`Welcome to the club. ${config.creditsPerMonth} album credits added.`);
+    plan();
+  });
+  $("#cancel")?.addEventListener("click", async () => {
+    if (!confirm("Cancel your subscription? You keep the credits you have.")) return;
+    await api("/api/subscription", { method: "DELETE" });
+    toast("Subscription cancelled. Your credits are still yours.");
+    plan();
+  });
 }
+
+/* ---------- Payouts ---------- */
 
 async function payouts() {
   const p = await api("/api/payouts");
+  const price = config.albumPrice, artist = config.artistPerAlbum;
+  const net = Math.round(price / (1 + config.vatRate));
+  const vat = price - net, platform = net - artist;
+  const pct = (x) => `${(x / price) * 100}%`;
+  const tot = p.payouts.reduce((s, r) => ({ copies: s.copies + r.copiesSold, gross: s.gross + r.gross, artist: s.artist + r.artistPayout }), { copies: 0, gross: 0, artist: 0 });
   $("#payouts").innerHTML = `
-    <h2>Artist payouts for ${esc(p.month)}</h2>
-    <p class="muted">Every album copy is a ${gbp(config.albumPrice)} sale (including ${p.vatRate * 100}% VAT), whether the fan used a credit or paid cash. The artist gets ${p.artistShare * 100}% of the amount after VAT.</p>
-    <table>
-      <tr><th>Artist</th><th class="n">Copies</th><th class="n">Credit / cash</th><th class="n">Sales</th><th class="n">VAT</th><th class="n">To artist</th><th class="n">Platform</th></tr>
-      ${p.payouts.map((r) => `<tr><td>${esc(r.artist)}</td><td class="n">${r.copiesSold}</td><td class="n">${r.viaCredit} / ${r.viaCash}</td><td class="n">${gbp(r.gross)}</td><td class="n">${gbp(r.vat)}</td><td class="n"><strong>${gbp(r.artistPayout)}</strong></td><td class="n">${gbp(r.platformFee)}</td></tr>`).join("")
-        || `<tr><td colspan="7" class="muted">No sales yet this month.</td></tr>`}
-    </table>
-    <p class="muted">Subscription money held for credits fans haven't spent yet: ${gbp(p.heldForUnspentCredits)}. It goes to artists when the credits are used.</p>`;
+    <div class="section-head">
+      <div><h2>Where every ${gbp(price)} goes</h2>
+      <p>Prices include ${p.vatRate * 100}% VAT. The artist gets ${p.artistShare * 100}% of what's left, whether the fan used a credit or paid cash.</p></div>
+    </div>
+    <div class="split">
+      <div class="split-bar">
+        <div class="s-artist" style="width:${pct(artist)}">${gbp(artist)}</div>
+        <div class="s-vat" style="width:${pct(vat)}">${gbp(vat)}</div>
+        <div class="s-platform" style="width:${pct(platform)}"></div>
+      </div>
+      <div class="legend">
+        <div><strong>${gbp(artist)}</strong><i style="background:var(--accent)"></i>Artist</div>
+        <div><strong>${gbp(vat)}</strong><i style="background:var(--vat)"></i>VAT</div>
+        <div><strong>${gbp(platform)}</strong><i style="background:var(--accent-2)"></i>OwnMusic</div>
+      </div>
+    </div>
+    <h2 style="margin:32px 0 0">${esc(monthName(p.month))}</h2>
+    <div class="stat-grid">
+      <div class="stat"><strong>${tot.copies}</strong><span>albums sold</span></div>
+      <div class="stat"><strong>${gbp(tot.gross)}</strong><span>sales</span></div>
+      <div class="stat"><strong>${gbp(tot.artist)}</strong><span>to artists</span></div>
+      <div class="stat"><strong>${gbp(p.heldForUnspentCredits)}</strong><span>held for unspent credits</span></div>
+    </div>
+    <ul class="rows" style="margin-top:20px">
+      ${p.payouts.map((r) => `
+        <li class="payout-row">
+          <strong>${esc(r.artist)}</strong><span class="r"><strong>${gbp(r.artistPayout)}</strong></span>
+          <span class="muted small">${plural(r.copiesSold, "album")} · ${r.viaCredit} by credit, ${r.viaCash} cash</span>
+          <span class="muted small r">of ${gbp(r.gross)} · VAT ${gbp(r.vat)} · us ${gbp(r.platformFee)}</span>
+        </li>`).join("")
+        || `<li class="muted">No sales yet this month.</li>`}
+    </ul>
+    <p class="muted small" style="margin-top:14px">Subscription money for credits nobody has spent yet is held. It reaches an artist when a fan uses the credit on their album.</p>`;
 }
 
+/* ---------- Artist ---------- */
+
 async function artist() {
+  me = await api("/api/me");
   const a = me.artist;
   $("#artist").innerHTML = `
-    <h2>${a ? esc(a.name) : "Become an artist"}</h2>
-    ${a && !a.verified ? `<p class="muted">Waiting for verification. Every release needs a real, verified artist behind it.</p>` : ""}
-    <form id="artist-form">
-      <label>Artist name <input name="name" required value="${esc(a?.name)}" /></label>
-      <label>Bio <textarea name="bio" rows="3">${esc(a?.bio)}</textarea></label>
-      <button>${a ? "Save" : "Apply"}</button>
-    </form>
-    ${a?.verified ? `
-      <h2>Release an album</h2>
-      <p class="muted">Albums sell for ${gbp(config.albumPrice)} including VAT; you get 90% of the rest, ${gbp(config.artistPerAlbum)} per copy.</p>
-      <form id="upload-form">
+    <div class="section-head">
+      <div><h2>${a ? esc(a.name) : "Release your music"}</h2>
+      <p>Albums sell for ${gbp(config.albumPrice)} including VAT. You get ${gbp(config.artistPerAlbum)} of every copy, every time, whether fans use a credit or pay cash.</p></div>
+      ${a ? `<span class="status-pill ${a.verified ? "ok" : "wait"}">${a.verified ? "✓ Verified artist" : "Awaiting verification"}</span>` : ""}
+    </div>
+    <div class="stack two">
+      <form id="artist-form" class="panel">
+        <h2>${a ? "Artist profile" : "Apply as an artist"}</h2>
+        <label>Artist name <input name="name" required value="${esc(a?.name)}" /></label>
+        <label>Bio <textarea name="bio" rows="3">${esc(a?.bio)}</textarea></label>
+        <button class="btn ${a ? "" : "btn-primary"}">${a ? "Save" : "Apply"}</button>
+        ${a && !a.verified ? `<p class="muted small" style="margin-top:12px">Every release needs a real, verified artist behind it. AI tools are fine, like sampling, as long as they're credited.</p>` : ""}
+      </form>
+      ${a?.verified ? `
+      <form id="upload-form" class="panel">
+        <h2>Release an album</h2>
         <label>Album title <input name="title" required /></label>
-        <label>Credits <textarea name="credits" rows="2" placeholder="Written by…, produced by…, samples / AI tools used…"></textarea></label>
-        <label>Tracks <input name="audio" type="file" accept="audio/*" multiple required />
-          <span class="muted">Select every track at once. They're ordered by file name, so number them (01 Intro.mp3, 02 …).</span></label>
-        <button>Release</button> <span id="upload-status" class="muted"></span>
-      </form>` : ""}`;
+        <div class="cover-pick">
+          <div id="cover-preview">${artSvg(0, "new")}</div>
+          <label class="drop" style="margin:0">
+            <span><strong>Cover art</strong><br />Square image, optional</span>
+            <input name="cover" type="file" accept="image/*" />
+          </label>
+        </div>
+        <label class="drop" style="margin-top:14px">
+          <span><strong>Tracks</strong><br />Select every track at once. They're ordered by file name, so number them: 01 Intro.mp3, 02 …</span>
+          <input name="audio" type="file" accept="audio/*" multiple required />
+        </label>
+        <ol class="file-list" id="file-list"></ol>
+        <label style="margin-top:14px">Credits <textarea name="credits" rows="3" placeholder="Written by…, produced by…, samples or AI tools used…"></textarea></label>
+        <button class="btn btn-primary btn-block">Release album</button>
+        <p id="upload-status" class="muted small" style="margin-top:10px"></p>
+      </form>` : ""}
+    </div>`;
+  $("#cover-preview")?.classList.add("cover");
   $("#artist-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
     await api("/api/artist", { method: "POST", body: { name: f.get("name"), bio: f.get("bio") } });
-    me = await api("/api/me");
+    toast(a ? "Profile saved" : "Application sent. You'll be able to release once verified.");
     artist();
   });
-  $("#upload-form")?.addEventListener("submit", async (e) => {
+  const form = $("#upload-form");
+  if (!form) return;
+  form.cover.addEventListener("change", () => {
+    const file = form.cover.files[0];
+    if (file) $("#cover-preview").innerHTML = `<img src="${URL.createObjectURL(file)}" alt="" />`;
+  });
+  form.audio.addEventListener("change", () => {
+    const names = [...form.audio.files].map((f) => f.name).sort((x, y) => x.localeCompare(y, undefined, { numeric: true }));
+    $("#file-list").innerHTML = names.map((n) => `<li>${esc(n)}</li>`).join("");
+  });
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const btn = form.querySelector("button");
+    btn.disabled = true;
     $("#upload-status").textContent = "Uploading…";
     try {
-      const r = await api("/api/artist/albums", { method: "POST", body: new FormData(e.target) });
-      $("#upload-status").textContent = `Released with ${r.tracks} tracks. It's live on Albums.`;
-      e.target.reset();
-    } catch (err) { $("#upload-status").textContent = err.message; }
+      const r = await api("/api/artist/albums", { method: "POST", body: new FormData(form) });
+      toast(`Released with ${plural(r.tracks, "track")}. It's live.`);
+      show("albums");
+    } catch (err) {
+      $("#upload-status").textContent = err.message;
+      btn.disabled = false;
+    }
   });
 }
 

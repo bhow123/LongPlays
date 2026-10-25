@@ -97,7 +97,7 @@ npm run dev                              # restarts on file changes
      -H "x-admin-token: pick-a-secret" -H "content-type: application/json" \
      -d '{"name":"Artist Name"}'
    ```
-3. **Release an album.** Reload **For artists**, give it a title and credits, and select all its tracks at once. Tracks are ordered by file name, so number them (`01 Intro.mp3`, `02 …`). A leading track number is removed from the displayed title.
+3. **Release an album.** Reload **For artists**, give it a title, optional square cover art and credits, and select all its tracks at once. Tracks are ordered by file name, so number them (`01 Intro.mp3`, `02 …`). A leading track number is removed from the displayed title.
 4. **Be a fan.** In another browser or a private window, sign in as someone else. Preview tracks, subscribe under **My plan** (no real payment is taken), and buy albums. The first two use credits and the next costs £5.
 5. **Check the money.** **My plan** shows credits and what each album paid its artist. **Artist payouts** shows sales, VAT, artist and platform amounts for the month, plus any money held for unspent credits.
 
@@ -106,7 +106,7 @@ npm run dev                              # restarts on file changes
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `3000` | HTTP port |
-| `DATA_DIR` | `./data` | Where the SQLite database (`ownmusic-v2.db`) and uploaded audio (`audio/`) live |
+| `DATA_DIR` | `./data` | Where the SQLite database (`ownmusic-v2.db`) and uploads (`audio/`, which also holds cover images) live |
 | `ADMIN_TOKEN` | unset | Needed to call `POST /api/admin/verify`. If unset, verification only works through the CLI script |
 | `SESSION_SECRET` | random per start | Signs the session cookie. Set it in production or everyone is signed out on every restart |
 
@@ -122,8 +122,8 @@ src/
   verify-artist.ts  CLI: mark an artist as verified
 public/
   index.html        Single page shell
-  app.js            Vanilla JS UI (tabs: Albums, My collection, My plan, Artist payouts, For artists)
-  style.css         Light/dark theme
+  app.js            Vanilla JS UI: albums grid and album sheet, player, collection, plan, payouts, artist area
+  style.css         Design tokens, light and dark themes, layout
 test/
   money.test.ts     node:test tests for money.ts against an in-memory DB
 ```
@@ -133,6 +133,7 @@ test/
 - **Auth:** a name and password (hashed with scrypt), stored in a signed, httpOnly cookie. It's fine for a demo, but it isn't real account security: there's no email, no reset and no rate limiting.
 - **Money:** everything is in **integer pence**. Rules live only in `src/money.ts`, so the UI and routes never do money maths themselves.
 - **Subscriptions:** there's no background job. `renewSubscription` runs on each signed-in request and bills any months the user hasn't been charged for yet, each giving 2 credits.
+- **UI:** one page, no framework. Fonts are Space Grotesk and JetBrains Mono from Google Fonts. Albums without cover art get a generated cover, made from a hash of the album's id and title, so it's always the same. Copy numbers are shown as `#0007`, and each owned album has a certificate with a serial number, `OM-<album>-<copy>`.
 - **Previews:** the player stops non-owners at 30 seconds. The full file is still served to anyone signed in, so this isn't protection (see the roadmap).
 
 ## Money rules in code
@@ -159,7 +160,7 @@ SQLite tables, defined in [`src/db.ts`](src/db.ts):
 | --- | --- |
 | `users` | Name (unique) and password hash |
 | `artists` | One per user who applies. `verified` must be 1 before they can release or appear in the catalogue |
-| `albums` | Title and credits, belonging to an artist |
+| `albums` | Title, credits and optional cover image file, belonging to an artist. Albums without a cover get generated artwork in the browser |
 | `tracks` | Album tracks with position and audio file name |
 | `copies` | Numbered album copies: `(album_id, number)` and `(album_id, owner_id)` are both unique. `paid_with` is `credit` or `cash`. `value_pence` is the sale value, and `month` is the month it counts towards payouts |
 | `subscriptions` | One row per user: `started_month`, `last_billed_month`, `active` |
@@ -184,11 +185,12 @@ JSON in and out. "Auth" means it needs the session cookie from `/api/login`.
 | `POST /api/tracks/:id/plays` | ✓ | Start playing: returns `{owned, previewSeconds}` and logs the play if owned |
 | `POST /api/albums/:id/buy` | ✓ | Buy the next copy: returns `{number, paidWith, alreadyOwned}` |
 | `GET /api/albums/:id/owners` | | Copy numbers and owner names |
+| `GET /api/albums/:id/cover` | | The album's cover image (404 if none) |
 | `GET /api/account` | ✓ | Subscription status, credits, total paid and purchases |
 | `POST /api/subscription` / `DELETE /api/subscription` | ✓ | Subscribe or cancel |
 | `GET /api/payouts?month=YYYY-MM` | | Per-artist sales, VAT, artist and platform amounts, plus money held for unspent credits |
 | `POST /api/artist` `{name, bio}` | ✓ | Apply as, or update, your artist profile |
-| `POST /api/artist/albums` (multipart: `title`, `credits`, `audio`[]) | ✓ verified artist | Release an album (up to 40 audio files, 100 MB each) |
+| `POST /api/artist/albums` (multipart: `title`, `credits`, `cover`, `audio`[]) | ✓ verified artist | Release an album (up to 40 audio files and 1 image, 100 MB each) |
 | `POST /api/admin/verify` `{name}` + `x-admin-token` header | admin | Verify an artist by name |
 
 ## Deploying
@@ -223,7 +225,7 @@ Roughly in order:
 2. **A monthly billing job** to replace lazy renewal, plus payout statements for artists.
 3. **Server-side preview clips**, so non-owners can't fetch full files.
 4. **Real accounts:** email sign-in, password reset and rate limiting.
-5. **Album artwork**, plus editing track titles and order after release.
+5. **Editing albums after release:** track titles, order and cover art.
 6. **Owner communities:** pages for each album's copy owners, and messages from the artist to owners.
 7. **Optional NFT minting** of copies as non-transferable tokens, with crypto hidden from fans, so ownership survives the service.
 

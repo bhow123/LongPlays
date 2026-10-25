@@ -32,6 +32,7 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic-v2.db")) {
       artist_id INTEGER NOT NULL REFERENCES artists(id),
       title TEXT NOT NULL,
       credits TEXT NOT NULL DEFAULT '',
+      cover_file TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS tracks (
@@ -86,6 +87,9 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic-v2.db")) {
       month TEXT NOT NULL
     );
   `);
+  // Albums released before cover art was supported.
+  const albumCols = db.prepare(`PRAGMA table_info(albums)`).all() as { name: string }[];
+  if (!albumCols.some((c) => c.name === "cover_file")) db.exec(`ALTER TABLE albums ADD COLUMN cover_file TEXT`);
   return db;
 }
 

@@ -80,7 +80,7 @@ app.get("/api/albums", (req, res) => {
   const uid = Number(req.signedCookies.uid) || 0;
   const albums = db
     .prepare(
-      `SELECT al.id, al.title, al.credits, ar.name AS artist,
+      `SELECT al.id, al.title, al.credits, ar.name AS artist, ar.bio AS artistBio, al.cover_file IS NOT NULL AS hasCover,
               (SELECT COUNT(*) FROM copies c WHERE c.album_id = al.id) AS copiesSold,
               (SELECT number FROM copies c WHERE c.album_id = al.id AND c.owner_id = ?) AS myCopy
        FROM albums al JOIN artists ar ON ar.id = al.artist_id
@@ -92,6 +92,14 @@ app.get("/api/albums", (req, res) => {
      FROM tracks t WHERE t.album_id = ? ORDER BY t.position`,
   );
   res.json(albums.map((a) => ({ ...a, tracks: tracks.all(a.id) })));
+});
+
+app.get("/api/albums/:id/cover", (req, res) => {
+  const a = db.prepare(`SELECT cover_file FROM albums WHERE id = ?`).get(Number(req.params.id)) as
+    | { cover_file: string | null }
+    | undefined;
+  if (!a?.cover_file) return res.sendStatus(404);
+  res.set("cache-control", "public, max-age=86400").sendFile(path.join(AUDIO_DIR, a.cover_file));
 });
 
 app.get("/api/tracks/:id/audio", auth, (req, res) => {
@@ -164,13 +172,21 @@ const upload = multer({
     filename: (_req, file, cb) => cb(null, crypto.randomUUID() + path.extname(file.originalname).toLowerCase()),
   }),
   limits: { fileSize: 100 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => cb(null, file.mimetype.startsWith("audio/")),
+  fileFilter: (_req, file, cb) =>
+    cb(null, file.fieldname === "cover" ? file.mimetype.startsWith("image/") : file.mimetype.startsWith("audio/")),
 });
 
-app.post("/api/artist/albums", auth, upload.array("audio", 40), (req, res) => {
+const albumUpload = upload.fields([
+  { name: "audio", maxCount: 40 },
+  { name: "cover", maxCount: 1 },
+]);
+
+app.post("/api/artist/albums", auth, albumUpload, (req, res) => {
   const artist = artistFor((req as Authed).user.id);
   if (!artist?.verified) return res.status(403).json({ error: "only verified artists can release albums" });
-  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  const uploaded = (req.files ?? {}) as Record<string, Express.Multer.File[]>;
+  const files = uploaded.audio ?? [];
+  const cover = uploaded.cover?.[0]?.filename ?? null;
   if (!files.length) return res.status(400).json({ error: "add at least one audio file" });
   const title = String(req.body.title ?? "").trim().slice(0, 120);
   if (!title) return res.status(400).json({ error: "album title required" });
@@ -179,7 +195,8 @@ app.post("/api/artist/albums", auth, upload.array("audio", 40), (req, res) => {
   const sorted = [...files].sort((a, b) => a.originalname.localeCompare(b.originalname, undefined, { numeric: true }));
   const albumId = db.transaction(() => {
     const id = Number(
-      db.prepare(`INSERT INTO albums (artist_id, title, credits) VALUES (?, ?, ?)`).run(artist.id, title, credits).lastInsertRowid,
+      db.prepare(`INSERT INTO albums (artist_id, title, credits, cover_file) VALUES (?, ?, ?, ?)`)
+        .run(artist.id, title, credits, cover).lastInsertRowid,
     );
     const insert = db.prepare(`INSERT INTO tracks (album_id, position, title, audio_file) VALUES (?, ?, ?, ?)`);
     sorted.forEach((f, i) => {
