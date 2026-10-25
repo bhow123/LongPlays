@@ -356,20 +356,26 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#she
 const audio = $("#audio");
 let current = null;
 
-async function play(trackId, album) {
-  if (current?.trackId === trackId) return toggle();
-  const r = await api(`/api/tracks/${trackId}/plays`, { method: "POST" });
+// The audio starts inside the tap itself. iPhone (especially the home-screen app)
+// refuses play() once an await has run, so the play is logged alongside, not before.
+function play(trackId, album) {
+  const owned = !!(album.myCopy || album.isMine);
+  // Same track again is play/pause, unless the album was just bought mid-preview.
+  if (current?.trackId === trackId && current.owned === owned) return toggle();
   const t = album.tracks.find((x) => x.id === trackId);
-  current = { trackId, albumId: album.id, owned: r.owned, limit: r.previewSeconds };
+  current = { trackId, albumId: album.id, album, owned, limit: owned ? null : config.previewSeconds };
+  audio.src = `/api/tracks/${trackId}/audio`;
+  audio.play().catch(() => toast("Tap play again to start the music."));
   $("#player").hidden = false;
   $("#now-cover").innerHTML = cover(album.id, album.title, album.hasCover);
   $("#now-title").textContent = t.title;
   $("#now-artist").textContent = `${album.artist} · ${album.title}`;
-  $("#now-badge").innerHTML = r.isArtist ? `<span class="badge own">Your release</span>` : r.owned ? `<span class="badge own">${copyNo(album.myCopy)}</span>` : `<span class="badge">Preview</span>`;
+  $("#now-badge").innerHTML = album.isMine ? `<span class="badge own">Your release</span>` : owned ? `<span class="badge own">${copyNo(album.myCopy)}</span>` : `<span class="badge">Preview</span>`;
   $("#preview-mark").hidden = true;
-  audio.src = `/api/tracks/${trackId}/audio`;
-  audio.play();
   highlightTrack();
+  api(`/api/tracks/${trackId}/plays`, { method: "POST" })
+    .then((r) => { if (current?.trackId === trackId) current.limit = r.previewSeconds; })
+    .catch(() => {});
   // Lock screen and headphone controls when installed on a phone.
   if ("mediaSession" in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
@@ -380,12 +386,30 @@ async function play(trackId, album) {
         ? [{ src: `/api/albums/${album.id}/cover`, sizes: "512x512" }]
         : [{ src: "/icons/icon-512.png", sizes: "512x512", type: "image/png" }],
     });
-    navigator.mediaSession.setActionHandler("play", () => audio.play());
-    navigator.mediaSession.setActionHandler("pause", () => audio.pause());
   }
 }
 
-function toggle() { audio.paused ? audio.play() : audio.pause(); }
+// Next and previous within the album. Previews stop at the end of each track.
+function step(by) {
+  if (!current) return;
+  const tracks = current.album.tracks;
+  const next = tracks[tracks.findIndex((x) => x.id === current.trackId) + by];
+  if (next) play(next.id, current.album);
+}
+audio.addEventListener("ended", () => { if (current?.owned) step(1); });
+if ("mediaSession" in navigator) {
+  const ms = navigator.mediaSession;
+  const handlers = {
+    play: () => audio.play(),
+    pause: () => audio.pause(),
+    nexttrack: () => step(1),
+    previoustrack: () => (audio.currentTime > 3 ? (audio.currentTime = 0) : step(-1)),
+    seekto: (d) => { if (!current?.limit || d.seekTime < current.limit) audio.currentTime = d.seekTime; },
+  };
+  for (const [k, fn] of Object.entries(handlers)) try { ms.setActionHandler(k, fn); } catch {}
+}
+
+function toggle() { audio.paused ? audio.play().catch(() => {}) : audio.pause(); }
 $("#toggle").addEventListener("click", toggle);
 
 function highlightTrack() {
