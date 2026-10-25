@@ -5,8 +5,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { openDb, AUDIO_DIR } from "./db.js";
 import {
-  buyCopy, logPlay, ownsCopy, payoutsForMonth, listenerStatement, monthOf,
-  ARTIST_SHARE, DEFAULT_PRICE_PENCE, PREVIEW_SECONDS,
+  buyAlbum, subscribe, cancelSubscription, renewSubscription, accountSummary, logPlay, ownsAlbum,
+  payoutsForMonth, monthOf, ALBUM_PRICE_PENCE, SUBSCRIPTION_PENCE, CREDITS_PER_MONTH, ARTIST_SHARE, PREVIEW_SECONDS,
 } from "./money.js";
 
 const db = openDb();
@@ -36,6 +36,7 @@ function auth(req: Request, res: Response, next: NextFunction) {
   const user = id ? (db.prepare(`SELECT id, name FROM users WHERE id = ?`).get(id) as User | undefined) : undefined;
   if (!user) return res.status(401).json({ error: "sign in first" });
   (req as Authed).user = user;
+  renewSubscription(db, user.id);
   next();
 }
 const artistFor = (userId: number) =>
@@ -44,7 +45,10 @@ const artistFor = (userId: number) =>
     | undefined;
 
 app.get("/api/config", (_req, res) =>
-  res.json({ defaultPrice: DEFAULT_PRICE_PENCE, previewSeconds: PREVIEW_SECONDS, artistShare: ARTIST_SHARE }),
+  res.json({
+    albumPrice: ALBUM_PRICE_PENCE, subscription: SUBSCRIPTION_PENCE, creditsPerMonth: CREDITS_PER_MONTH,
+    previewSeconds: PREVIEW_SECONDS, artistShare: ARTIST_SHARE,
+  }),
 );
 
 app.post("/api/login", (req, res) => {
@@ -71,19 +75,22 @@ app.get("/api/me", auth, (req, res) => {
   res.json({ ...user, artist: artistFor(user.id) ?? null });
 });
 
-app.get("/api/tracks", (req, res) => {
+app.get("/api/albums", (req, res) => {
   const uid = Number(req.signedCookies.uid) || 0;
-  const rows = db
+  const albums = db
     .prepare(
-      `SELECT t.id, t.title, t.credits, t.copy_price_pence AS copyPrice, a.name AS artist, a.id AS artistId,
-              (SELECT COUNT(*) FROM copies c WHERE c.track_id = t.id) AS copiesSold,
-              (SELECT COUNT(*) FROM plays p WHERE p.track_id = t.id) AS plays,
-              (SELECT number FROM copies c WHERE c.track_id = t.id AND c.owner_id = ?) AS myCopy
-       FROM tracks t JOIN artists a ON a.id = t.artist_id
-       WHERE a.verified = 1 ORDER BY t.created_at DESC`,
+      `SELECT al.id, al.title, al.credits, ar.name AS artist,
+              (SELECT COUNT(*) FROM copies c WHERE c.album_id = al.id) AS copiesSold,
+              (SELECT number FROM copies c WHERE c.album_id = al.id AND c.owner_id = ?) AS myCopy
+       FROM albums al JOIN artists ar ON ar.id = al.artist_id
+       WHERE ar.verified = 1 ORDER BY al.created_at DESC, al.id DESC`,
     )
-    .all(uid);
-  res.json(rows);
+    .all(uid) as { id: number }[];
+  const tracks = db.prepare(
+    `SELECT t.id, t.title, t.position, (SELECT COUNT(*) FROM plays p WHERE p.track_id = t.id) AS plays
+     FROM tracks t WHERE t.album_id = ? ORDER BY t.position`,
+  );
+  res.json(albums.map((a) => ({ ...a, tracks: tracks.all(a.id) })));
 });
 
 app.get("/api/tracks/:id/audio", auth, (req, res) => {
@@ -99,50 +106,42 @@ app.get("/api/tracks/:id/audio", auth, (req, res) => {
 app.post("/api/tracks/:id/plays", auth, (req, res) => {
   const { user } = req as Authed;
   const trackId = Number(req.params.id);
-  if (!db.prepare(`SELECT 1 FROM tracks WHERE id = ?`).get(trackId)) return res.sendStatus(404);
-  const owned = ownsCopy(db, user.id, trackId);
+  const t = db.prepare(`SELECT album_id FROM tracks WHERE id = ?`).get(trackId) as { album_id: number } | undefined;
+  if (!t) return res.sendStatus(404);
+  const owned = ownsAlbum(db, user.id, t.album_id);
   if (owned) logPlay(db, user.id, trackId);
   res.json({ owned, previewSeconds: owned ? null : PREVIEW_SECONDS });
 });
 
-app.post("/api/tracks/:id/copies", auth, (req, res) => {
+app.post("/api/albums/:id/buy", auth, (req, res) => {
   try {
-    res.json(buyCopy(db, (req as Authed).user.id, Number(req.params.id)));
+    res.json(buyAlbum(db, (req as Authed).user.id, Number(req.params.id)));
   } catch (e) {
     res.status(404).json({ error: (e as Error).message });
   }
 });
 
-app.get("/api/copies/mine", auth, (req, res) => {
+app.get("/api/albums/:id/owners", (req, res) => {
   res.json(
     db
-      .prepare(
-        `SELECT c.number, c.created_at AS createdAt, t.id AS trackId, t.title, a.name AS artist, t.artist_id AS artistId
-         FROM copies c JOIN tracks t ON t.id = c.track_id JOIN artists a ON a.id = t.artist_id
-         WHERE c.owner_id = ? ORDER BY c.created_at DESC`,
-      )
-      .all((req as Authed).user.id),
-  );
-});
-
-app.get("/api/tracks/:id/owners", (req, res) => {
-  res.json(
-    db
-      .prepare(
-        `SELECT c.number, u.name FROM copies c JOIN users u ON u.id = c.owner_id WHERE c.track_id = ? ORDER BY c.number`,
-      )
+      .prepare(`SELECT c.number, u.name FROM copies c JOIN users u ON u.id = c.owner_id WHERE c.album_id = ? ORDER BY c.number`)
       .all(Number(req.params.id)),
   );
 });
 
-app.get("/api/statement", auth, (req, res) => {
-  const month = String(req.query.month ?? monthOf(new Date()));
-  res.json(listenerStatement(db, (req as Authed).user.id, month));
+app.get("/api/account", auth, (req, res) => res.json(accountSummary(db, (req as Authed).user.id)));
+app.post("/api/subscription", auth, (req, res) => {
+  subscribe(db, (req as Authed).user.id);
+  res.json(accountSummary(db, (req as Authed).user.id));
+});
+app.delete("/api/subscription", auth, (req, res) => {
+  cancelSubscription(db, (req as Authed).user.id);
+  res.json(accountSummary(db, (req as Authed).user.id));
 });
 
 app.get("/api/payouts", (req, res) => {
   const month = String(req.query.month ?? monthOf(new Date()));
-  res.json({ month, artistShare: ARTIST_SHARE, payouts: payoutsForMonth(db, month) });
+  res.json({ artistShare: ARTIST_SHARE, ...payoutsForMonth(db, month) });
 });
 
 // Artists: anyone can apply; only a verified artist's tracks are listed or uploadable.
@@ -163,22 +162,32 @@ const upload = multer({
     destination: AUDIO_DIR,
     filename: (_req, file, cb) => cb(null, crypto.randomUUID() + path.extname(file.originalname).toLowerCase()),
   }),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => cb(null, file.mimetype.startsWith("audio/")),
 });
 
-app.post("/api/artist/tracks", auth, upload.single("audio"), (req, res) => {
+app.post("/api/artist/albums", auth, upload.array("audio", 40), (req, res) => {
   const artist = artistFor((req as Authed).user.id);
-  if (!artist?.verified) return res.status(403).json({ error: "only verified artists can release tracks" });
-  if (!req.file) return res.status(400).json({ error: "audio file required" });
-  const title = String(req.body.title ?? "").trim().slice(0, 120) || req.file.originalname;
-  const credits = String(req.body.credits ?? "").slice(0, 1000);
-  const pounds = Number(req.body.copyPrice || NaN);
-  const price = Number.isFinite(pounds) && pounds >= 0 ? Math.round(pounds * 100) : DEFAULT_PRICE_PENCE;
-  const r = db
-    .prepare(`INSERT INTO tracks (artist_id, title, credits, audio_file, copy_price_pence) VALUES (?, ?, ?, ?, ?)`)
-    .run(artist.id, title, credits, req.file.filename, price);
-  res.json({ id: Number(r.lastInsertRowid) });
+  if (!artist?.verified) return res.status(403).json({ error: "only verified artists can release albums" });
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (!files.length) return res.status(400).json({ error: "add at least one audio file" });
+  const title = String(req.body.title ?? "").trim().slice(0, 120);
+  if (!title) return res.status(400).json({ error: "album title required" });
+  const credits = String(req.body.credits ?? "").slice(0, 2000);
+  // Track order follows the file names, so "01 Intro.mp3", "02 ..." land in order.
+  const sorted = [...files].sort((a, b) => a.originalname.localeCompare(b.originalname, undefined, { numeric: true }));
+  const albumId = db.transaction(() => {
+    const id = Number(
+      db.prepare(`INSERT INTO albums (artist_id, title, credits) VALUES (?, ?, ?)`).run(artist.id, title, credits).lastInsertRowid,
+    );
+    const insert = db.prepare(`INSERT INTO tracks (album_id, position, title, audio_file) VALUES (?, ?, ?, ?)`);
+    sorted.forEach((f, i) => {
+      const name = path.parse(f.originalname).name.replace(/^\d+[\s._-]*/, "").trim() || f.originalname;
+      insert.run(id, i + 1, name.slice(0, 120), f.filename);
+    });
+    return id;
+  })();
+  res.json({ id: albumId, tracks: sorted.length });
 });
 
 app.post("/api/admin/verify", (req, res) => {

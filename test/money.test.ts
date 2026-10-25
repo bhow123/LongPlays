@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "../src/db.js";
-import { buyCopy, logPlay, ownsCopy, payoutsForMonth, listenerStatement } from "../src/money.js";
+import {
+  buyAlbum, subscribe, cancelSubscription, renewSubscription, creditBalance, ownsAlbum, payoutsForMonth, accountSummary,
+} from "../src/money.js";
 
 function setup() {
   const db = openDb(":memory:");
@@ -10,63 +12,99 @@ function setup() {
     const uid = user(name);
     return Number(db.prepare(`INSERT INTO artists (user_id, name, verified) VALUES (?, ?, 1)`).run(uid, name).lastInsertRowid);
   };
-  const track = (artistId: number, price = 99) =>
-    Number(
-      db.prepare(`INSERT INTO tracks (artist_id, title, audio_file, copy_price_pence) VALUES (?, 't', 'x.mp3', ?)`)
-        .run(artistId, price).lastInsertRowid,
-    );
-  return { db, user, artist, track };
+  const album = (artistId: number) =>
+    Number(db.prepare(`INSERT INTO albums (artist_id, title) VALUES (?, 'LP')`).run(artistId).lastInsertRowid);
+  return { db, user, artist, album };
 }
 
-const t0 = new Date("2026-10-10T12:00:00Z");
+const oct = new Date("2026-10-10T12:00:00Z");
+const nov = new Date("2026-11-03T12:00:00Z");
+const jan = new Date("2027-01-05T12:00:00Z");
 
-test("copies are numbered in order, unlimited, and one per person", () => {
-  const { db, user, artist, track } = setup();
-  const tr = track(artist("Ben"));
-  const fans = ["a", "b", "c"].map(user);
-  assert.deepEqual(fans.map((f) => buyCopy(db, f, tr, t0).number), [1, 2, 3]);
-  assert.deepEqual(buyCopy(db, fans[0], tr, t0), { number: 1, alreadyOwned: true });
-  assert.ok(ownsCopy(db, fans[0], tr));
-});
-
-test("buying again never charges twice, and plays never cost anything", () => {
-  const { db, user, artist, track } = setup();
-  const fan = user("fan"), tr = track(artist("Ben"), 99);
-  buyCopy(db, fan, tr, t0);
-  buyCopy(db, fan, tr, t0);
-  for (let i = 0; i < 1000; i++) logPlay(db, fan, tr, t0);
-  assert.equal(listenerStatement(db, fan, "2026-10").total, 99);
-  assert.equal(payoutsForMonth(db, "2026-10")[0].gross, 99);
-});
-
-test("a fan's money only reaches the artists whose tracks they bought", () => {
-  const { db, user, artist, track } = setup();
-  const ben = artist("Ben"), other = artist("Other");
-  const benTrack = track(ben, 99), otherTrack = track(other, 150);
+test("subscribing charges £10 and gives 2 album credits", () => {
+  const { db, user } = setup();
   const fan = user("fan");
-  buyCopy(db, fan, benTrack, t0);
-  for (const f of ["x", "y", "z"].map(user)) buyCopy(db, f, otherTrack, t0);
-  const p = Object.fromEntries(payoutsForMonth(db, "2026-10").map((r) => [r.artist, r]));
-  assert.deepEqual([p.Ben.copiesSold, p.Ben.buyers, p.Ben.gross], [1, 1, 99]);
-  assert.deepEqual([p.Other.copiesSold, p.Other.buyers, p.Other.gross], [3, 3, 450]);
+  subscribe(db, fan, oct);
+  subscribe(db, fan, oct); // no double charge
+  const a = accountSummary(db, fan);
+  assert.equal(a.credits, 2);
+  assert.equal(a.totalPaid, 1000);
 });
 
-test("artist gets 90% of the monthly total, rounded down once", () => {
-  const { db, user, artist, track } = setup();
-  const tr = track(artist("Ben"), 99);
-  for (let i = 0; i < 5; i++) buyCopy(db, user(`f${i}`), tr, t0);
-  const [p] = payoutsForMonth(db, "2026-10");
-  // 90% of 495p is 445.5p: the artist gets 445p and the platform 50p.
-  assert.equal(p.gross, 495);
-  assert.equal(p.artistPayout, 445);
-  assert.equal(p.platformFee, 50);
+test("unused credits roll over month to month", () => {
+  const { db, user } = setup();
+  const fan = user("fan");
+  subscribe(db, fan, oct);
+  renewSubscription(db, fan, jan); // bills Nov, Dec, Jan
+  assert.equal(creditBalance(db, fan), 8);
+  assert.equal(accountSummary(db, fan).totalPaid, 4000);
 });
 
-test("sales are reported in the month they happened", () => {
-  const { db, user, artist, track } = setup();
-  const tr = track(artist("Ben"), 99);
-  buyCopy(db, user("oct"), tr, t0);
-  buyCopy(db, user("nov"), tr, new Date("2026-11-02T09:00:00Z"));
-  assert.equal(payoutsForMonth(db, "2026-10")[0].copiesSold, 1);
-  assert.equal(payoutsForMonth(db, "2026-11")[0].copiesSold, 1);
+test("cancelling stops billing but keeps earned credits", () => {
+  const { db, user } = setup();
+  const fan = user("fan");
+  subscribe(db, fan, oct);
+  cancelSubscription(db, fan);
+  renewSubscription(db, fan, jan);
+  assert.equal(creditBalance(db, fan), 2);
+  assert.equal(accountSummary(db, fan).totalPaid, 1000);
+  subscribe(db, fan, oct); // resubscribing in an already-paid month doesn't charge again
+  assert.equal(accountSummary(db, fan).totalPaid, 1000);
+});
+
+test("albums use credits first, then cost £5 each", () => {
+  const { db, user, artist, album } = setup();
+  const ben = artist("Ben");
+  const [a1, a2, a3] = [album(ben), album(ben), album(ben)];
+  const fan = user("fan");
+  subscribe(db, fan, oct);
+  assert.equal(buyAlbum(db, fan, a1, oct).paidWith, "credit");
+  assert.equal(buyAlbum(db, fan, a2, oct).paidWith, "credit");
+  assert.equal(buyAlbum(db, fan, a3, oct).paidWith, "cash");
+  const acc = accountSummary(db, fan);
+  assert.equal(acc.credits, 0);
+  assert.equal(acc.totalPaid, 1500);
+});
+
+test("a fan without a subscription can still buy albums for £5", () => {
+  const { db, user, artist, album } = setup();
+  const fan = user("fan"), lp = album(artist("Ben"));
+  assert.equal(buyAlbum(db, fan, lp, oct).paidWith, "cash");
+  assert.ok(ownsAlbum(db, fan, lp));
+  assert.equal(accountSummary(db, fan).totalPaid, 500);
+});
+
+test("album copies are numbered in order, one per person, and never charged twice", () => {
+  const { db, user, artist, album } = setup();
+  const lp = album(artist("Ben"));
+  const fans = ["a", "b", "c"].map(user);
+  assert.deepEqual(fans.map((f) => buyAlbum(db, f, lp, oct).number), [1, 2, 3]);
+  assert.equal(buyAlbum(db, fans[0], lp, oct).alreadyOwned, true);
+  assert.equal(accountSummary(db, fans[0]).totalPaid, 500);
+});
+
+test("artist gets 90% of £5 per album however it was paid for", () => {
+  const { db, user, artist, album } = setup();
+  const lp = album(artist("Ben"));
+  const sub = user("sub"), cash = user("cash");
+  subscribe(db, sub, oct);
+  buyAlbum(db, sub, lp, oct);
+  buyAlbum(db, cash, lp, oct);
+  const { payouts } = payoutsForMonth(db, "2026-10");
+  assert.deepEqual(
+    [payouts[0].copiesSold, payouts[0].viaCredit, payouts[0].viaCash, payouts[0].gross, payouts[0].artistPayout, payouts[0].platformFee],
+    [2, 1, 1, 1000, 900, 100],
+  );
+});
+
+test("money for unspent credits is held, not paid to anyone", () => {
+  const { db, user, artist, album } = setup();
+  const lp = album(artist("Ben"));
+  const fan = user("fan");
+  subscribe(db, fan, oct); // £10 in
+  buyAlbum(db, fan, lp, oct); // £5 of it spent
+  assert.equal(payoutsForMonth(db, "2026-10").heldForUnspentCredits, 500);
+  renewSubscription(db, fan, nov); // another £10, nothing bought
+  assert.equal(payoutsForMonth(db, "2026-11").heldForUnspentCredits, 1500);
+  assert.equal(payoutsForMonth(db, "2026-11").payouts.length, 0);
 });

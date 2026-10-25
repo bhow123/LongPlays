@@ -30,3 +30,10 @@ td.n, th.n { text-align: right; }
 #player { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 1px solid var(--line); padding: 10px 16px; }
 #player audio { width: 100%; }
 .ok { color: var(--ok); }
+
+.album { display: block; }
+.album-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.tracklist { list-style: none; padding: 0; margin: 12px 0 0; border-top: 1px solid var(--line); }
+.tracklist li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.tracklist button { padding: 4px 10px; font-size: 0.9em; }
+.pill { display: inline-block; padding: 2px 10px; border-radius: 99px; background: var(--line); font-size: 0.9em; }

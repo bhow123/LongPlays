@@ -6,7 +6,8 @@ export const DATA_DIR = process.env.DATA_DIR ?? path.resolve("data");
 export const AUDIO_DIR = path.join(DATA_DIR, "audio");
 fs.mkdirSync(AUDIO_DIR, { recursive: true });
 
-export function openDb(file = path.join(DATA_DIR, "ownmusic.db")) {
+// v2: albums + subscriptions. Earlier per-track demo data lives in ownmusic.db and is left alone.
+export function openDb(file = path.join(DATA_DIR, "ownmusic-v2.db")) {
   const db = new Database(file);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -25,44 +26,66 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic.db")) {
       bio TEXT NOT NULL DEFAULT '',
       verified INTEGER NOT NULL DEFAULT 0
     );
-    CREATE TABLE IF NOT EXISTS tracks (
+    -- Music is only sold as whole albums.
+    CREATE TABLE IF NOT EXISTS albums (
       id INTEGER PRIMARY KEY,
       artist_id INTEGER NOT NULL REFERENCES artists(id),
       title TEXT NOT NULL,
       credits TEXT NOT NULL DEFAULT '',
-      audio_file TEXT NOT NULL,
-      copy_price_pence INTEGER NOT NULL DEFAULT 99,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
-    -- A log of owners' listens, for play counts. Plays are never charged:
-    -- you pay once for a copy. (counted_at, month and charged_pence are unused
-    -- leftovers from the earlier pay-per-play version.)
+    CREATE TABLE IF NOT EXISTS tracks (
+      id INTEGER PRIMARY KEY,
+      album_id INTEGER NOT NULL REFERENCES albums(id),
+      position INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      audio_file TEXT NOT NULL
+    );
+    -- Numbered copies: the "digital CD". Bought once, unlimited plays, never resold, one per owner.
+    -- paid_with is 'credit' (a subscription allowance) or 'cash' (an extra purchase).
+    CREATE TABLE IF NOT EXISTS copies (
+      id INTEGER PRIMARY KEY,
+      album_id INTEGER NOT NULL REFERENCES albums(id),
+      number INTEGER NOT NULL,
+      owner_id INTEGER NOT NULL REFERENCES users(id),
+      paid_with TEXT NOT NULL CHECK (paid_with IN ('credit', 'cash')),
+      value_pence INTEGER NOT NULL,
+      month TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (album_id, number),
+      UNIQUE (album_id, owner_id)
+    );
+    -- A log of owners' listens, for play counts. Plays are never charged.
     CREATE TABLE IF NOT EXISTS plays (
       id INTEGER PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id),
       track_id INTEGER NOT NULL REFERENCES tracks(id),
-      started_at TEXT NOT NULL,
-      counted_at TEXT,
-      month TEXT,
-      charged_pence INTEGER NOT NULL DEFAULT 0
+      played_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS plays_user_month ON plays(user_id, month);
-    -- Numbered copies: the "digital CD". Bought once, unlimited plays, never resold, one per owner.
-    CREATE TABLE IF NOT EXISTS copies (
+    -- One subscription per user. last_billed_month is the latest month charged and credited.
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id),
+      started_month TEXT NOT NULL,
+      last_billed_month TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1
+    );
+    -- Album credits: +2 per subscribed month, -1 per album bought with a credit. They never expire.
+    CREATE TABLE IF NOT EXISTS credit_ledger (
       id INTEGER PRIMARY KEY,
-      track_id INTEGER NOT NULL REFERENCES tracks(id),
-      number INTEGER NOT NULL,
-      owner_id INTEGER NOT NULL REFERENCES users(id),
-      price_pence INTEGER NOT NULL,
-      month TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE (track_id, number),
-      UNIQUE (track_id, owner_id)
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      delta INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      month TEXT NOT NULL
+    );
+    -- Money in: subscription fees and extra album purchases.
+    CREATE TABLE IF NOT EXISTS payments (
+      id INTEGER PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      kind TEXT NOT NULL CHECK (kind IN ('subscription', 'album')),
+      amount_pence INTEGER NOT NULL,
+      month TEXT NOT NULL
     );
   `);
-  // Databases created before passwords were added.
-  const cols = db.prepare(`PRAGMA table_info(users)`).all() as { name: string }[];
-  if (!cols.some((c) => c.name === "password_hash")) db.exec(`ALTER TABLE users ADD COLUMN password_hash TEXT`);
   return db;
 }
 

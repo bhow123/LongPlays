@@ -9,7 +9,7 @@
 <body>
   <header>
     <h1>OwnMusic</h1>
-    <p class="tag">Buy a track once, own a numbered copy, play it forever. 90% goes to the artist.</p>
+    <p class="tag">Own albums, not rentals. £10 a month gets you 2 albums to keep. 90% goes to the artist.</p>
     <div id="who"></div>
   </header>
 
@@ -23,19 +23,20 @@
   </section>
 
   <nav id="tabs" hidden>
-    <button data-tab="listen" class="on">Listen</button>
-    <button data-tab="copies">My copies</button>
-    <button data-tab="statement">My purchases</button>
+    <button data-tab="albums" class="on">Albums</button>
+    <button data-tab="collection">My collection</button>
+    <button data-tab="plan">My plan</button>
     <button data-tab="payouts">Artist payouts</button>
     <button data-tab="artist">For artists</button>
   </nav>
 
   <main>
-    <section data-panel="listen">
-      <ul id="tracks" class="cards"></ul>
+    <section data-panel="albums">
+      <div id="credits-bar"></div>
+      <ul id="albums" class="cards"></ul>
     </section>
-    <section data-panel="copies" hidden><ul id="copies" class="cards"></ul></section>
-    <section data-panel="statement" hidden><div id="statement"></div></section>
+    <section data-panel="collection" hidden><ul id="collection" class="cards"></ul></section>
+    <section data-panel="plan" hidden><div id="plan"></div></section>
     <section data-panel="payouts" hidden><div id="payouts"></div></section>
     <section data-panel="artist" hidden><div id="artist"></div></section>
   </main>
