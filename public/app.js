@@ -54,11 +54,13 @@ const cover = (id, title, hasCover) =>
 
 let me = null;
 let config = null;
+let nftInfo = null;
 let account = null;
 let catalogue = [];
 
 async function boot() {
   config = await api("/api/config");
+  nftInfo = await api("/api/nft").catch(() => null);
   try { me = await api("/api/me"); } catch { me = null; }
   $("#login").hidden = !!me;
   $("#tabs").hidden = !me;
@@ -217,8 +219,10 @@ async function openAlbum(id, pane = "tracks") {
     <div class="seg" role="tablist">
       <button data-pane="tracks" class="${pane === "tracks" ? "on" : ""}">Tracks</button>
       <button data-pane="room" class="${pane === "room" ? "on" : ""}">Owners' room ${a.myCopy || a.isMine ? "" : "🔒"}</button>
+      <button data-pane="market" class="${pane === "market" ? "on" : ""}">Trade</button>
     </div>
     <div data-pane-body="room" ${pane === "room" ? "" : "hidden"}><div id="room"></div></div>
+    <div data-pane-body="market" ${pane === "market" ? "" : "hidden"}><div id="market"></div></div>
     <div data-pane-body="tracks" ${pane === "tracks" ? "" : "hidden"}>
     <ol class="tracklist">
       ${a.tracks.map((t) => `
@@ -255,12 +259,14 @@ async function openAlbum(id, pane = "tracks") {
   if (!wasOpen) $(".sheet-body").scrollTop = 0;
   document.body.style.overflow = "hidden";
   if (pane === "room") loadRoom(a);
+  if (pane === "market") loadMarket(a);
 }
 
 function switchPane(pane) {
   document.querySelectorAll(".seg [data-pane]").forEach((b) => b.classList.toggle("on", b.dataset.pane === pane));
   document.querySelectorAll("[data-pane-body]").forEach((d) => (d.hidden = d.dataset.paneBody !== pane));
   if (pane === "room") loadRoom(catalogue.find((x) => x.id === Number($("#sheet").dataset.album)));
+  if (pane === "market") loadMarket(catalogue.find((x) => x.id === Number($("#sheet").dataset.album)));
 }
 
 /* ---------- Owners' room ---------- */
@@ -324,6 +330,88 @@ async function loadRoom(a) {
     } catch (err) { toast(err.message); }
   });
 }
+
+/* ---------- Trading ---------- */
+
+const resaleCut = (price) => {
+  const artist = Math.floor((price * config.resaleArtistPercent) / 100);
+  const platform = Math.floor((price * config.resalePlatformPercent) / 100);
+  return { artist, platform, seller: price - artist - platform };
+};
+
+async function loadMarket(a) {
+  const m = await api(`/api/albums/${a.id}/market`);
+  const mine = m.myCopy;
+  const others = m.listings.filter((l) => !l.mine);
+  $("#market").innerHTML = `
+    <p class="muted small market-intro">Copies can change hands, but only here. Sell yours, or trade up to a lower number by offering a swap plus a top-up. Every trade sends ${config.resaleArtistPercent}% to ${esc(a.artist)} and ${config.resalePlatformPercent}% to OwnMusic.${a.demo ? " Demo money only." : ""}</p>
+    ${mine ? `
+      <div class="panel market-mine">
+        <div class="market-mine-head">
+          <div><p class="eyebrow">Your copy</p><strong class="big-no">${copyNo(mine.number)}</strong></div>
+          ${mine.token ? `<a class="chain-link" href="${mine.token.url}" target="_blank" rel="noopener">◆ NFT on chain ↗</a>` : `<span class="muted small">NFT minting…</span>`}
+        </div>
+        ${mine.listing
+          ? `<p>Listed: <strong>${mine.listing.kind === "sell" ? `for sale at ${gbp(mine.listing.price)}` : `swap for another number + ${gbp(mine.listing.price)} top-up`}</strong>. You'd get ${gbp(mine.listing.split.seller)}.</p>
+             <button class="btn" data-unlist>Take it off the market</button>`
+          : `<form id="list-form" class="list-form">
+              <div class="seg mini" role="radiogroup">
+                <label><input type="radio" name="kind" value="sell" checked /> <span>Sell</span></label>
+                <label><input type="radio" name="kind" value="swap" /> <span>Swap + top-up</span></label>
+              </div>
+              <label>Price (£) <input name="price" type="number" min="${config.minResale / 100}" step="0.01" value="20" required /></label>
+              <p class="muted small" id="list-preview"></p>
+              <button class="btn btn-primary">List ${copyNo(mine.number)}</button>
+            </form>`}
+      </div>` : ""}
+    <h3 class="market-h">${others.length ? `${plural(others.length, "copy", "copies")} on the market` : "Nothing on the market yet"}</h3>
+    <ul class="market-list">${others.map((l) => {
+      const canTake = l.kind === "sell" ? !mine : !!mine;
+      const label = l.kind === "sell" ? `Buy for ${gbp(l.price)}` : mine ? `Swap your ${copyNo(mine.number)} + ${gbp(l.price)}` : `Swap only`;
+      return `<li>
+        <span class="market-no">${copyNo(l.number)}</span>
+        <span class="market-who">${fanLink(l.seller)}<br /><span class="muted small">${l.kind === "sell" ? "for sale" : "wants a swap + top-up"}</span></span>
+        <button class="btn ${canTake ? "btn-primary" : ""}" data-take="${l.id}" ${canTake ? "" : "disabled"} title="${!canTake ? (l.kind === "sell" ? "You already own a copy. Owners trade up with swaps." : "Swaps need a copy of your own to trade in.") : ""}">${label}</button>
+      </li>`;
+    }).join("")}</ul>
+    ${mine && others.some((l) => l.kind === "sell") ? `<p class="muted small">You already own a copy, so you can only take swaps. To buy outright, sell yours first.</p>` : ""}`;
+  const form = $("#list-form");
+  if (form) {
+    const preview = () => {
+      const price = Math.round(Number(form.price.value) * 100) || 0;
+      const c = resaleCut(price);
+      $("#list-preview").textContent = `You get ${gbp(c.seller)} · ${gbp(c.artist)} to ${a.artist} · ${gbp(c.platform)} to OwnMusic`;
+    };
+    form.addEventListener("input", preview);
+    preview();
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        await api(`/api/albums/${a.id}/listing`, { method: "POST", body: { kind: form.kind.value, price: Math.round(Number(form.price.value) * 100) } });
+        toast(`${copyNo(mine.number)} is on the market`);
+        loadMarket(a);
+      } catch (err) { toast(err.message); }
+    });
+  }
+}
+$("#sheet").addEventListener("click", async (e) => {
+  const album = () => catalogue.find((x) => x.id === Number($("#sheet").dataset.album));
+  if (e.target.closest("[data-unlist]")) {
+    await api(`/api/albums/${album().id}/listing`, { method: "DELETE" });
+    return loadMarket(album());
+  }
+  const take = e.target.closest("[data-take]");
+  if (take) {
+    take.disabled = true;
+    try {
+      const r = await api(`/api/listings/${take.dataset.take}/take`, { method: "POST" });
+      toast(r.kind === "swap" ? `Traded ${copyNo(r.gaveNumber)} up to ${copyNo(r.number)}` : `${copyNo(r.number)} is yours for ${gbp(r.price)}`);
+      await refreshAccount();
+      catalogue = await api("/api/albums");
+      await openAlbum(album().id, "market");
+    } catch (err) { toast(err.message); take.disabled = false; }
+  }
+});
 
 function postCard(p) {
   const who = p.byArtist
@@ -550,11 +638,13 @@ async function collection() {
             <div class="num">${copyNo(c.number)}</div>
             <div><strong>${esc(c.title)}</strong> <span class="muted">· ${esc(c.artist)}</span></div>
             <div class="serial">OM-${String(c.albumId).padStart(4, "0")}-${String(c.number).padStart(4, "0")} · ${esc(me.name)} · ${esc(monthName(c.month))}</div>
+            ${c.tokenUrl ? `<a class="chain-link" href="${c.tokenUrl}" target="_blank" rel="noopener" data-external>◆ NFT on ${esc(nftInfo?.chain ?? "chain")} ↗</a>` : nftInfo?.enabled ? `<span class="muted small">◆ NFT minting…</span>` : ""}
           </div>
         </button>`).join("")}</div>`
       : `<div class="empty">No albums yet. Every album you buy gets a numbered certificate here. <br /><br /><button class="btn btn-primary" data-goto="albums">Browse albums</button></div>`}`;
 }
 $("#collection").addEventListener("click", async (e) => {
+  if (e.target.closest("[data-external]")) return;
   const id = e.target.closest("[data-album]")?.dataset.album;
   if (!id) return;
   catalogue = await api("/api/albums");
@@ -678,14 +768,18 @@ async function plan() {
           <li><span>Paid so far</span><span class="r">${gbp(acc.totalPaid)}</span></li>
           <li><span>Albums owned</span><span class="r">${acc.purchases.length}</span></li>
           <li><span>Sent to artists</span><span class="r">${gbp(acc.purchases.reduce((s, p) => s + p.toArtist, 0))}</span></li>
+          ${acc.trading.spent || acc.trading.earned ? `
+          <li><span>Spent on the market</span><span class="r">${gbp(acc.trading.spent)}</span></li>
+          <li><span>Earned selling copies</span><span class="r">${gbp(acc.trading.earned)}</span></li>` : ""}
         </ul>
+        ${acc.wallet ? `<p class="muted small wallet">Your copies are NFTs, kept for you in wallet <a href="${nftInfo?.explorer}/address/${acc.wallet}" target="_blank" rel="noopener"><code>${acc.wallet.slice(0, 6)}…${acc.wallet.slice(-4)}</code></a>. Only OwnMusic can move them, so every trade pays the artist.</p>` : ""}
       </div>
     </div>
     ${acc.purchases.length ? `
       <h2 style="margin:28px 0 4px">Purchases</h2>
       <ul class="rows">${acc.purchases.map((r) => `
         <li><span><strong>${esc(r.title)}</strong> <span class="muted">· ${esc(r.artist)} · ${copyNo(r.number)}</span></span>
-        <span class="r">${r.paidWith === "free" ? "Free demo copy" : `${r.paidWith === "credit" ? "1 credit" : gbp(r.value)} → ${gbp(r.toArtist)} to artist`}</span></li>`).join("")}
+        <span class="r">${r.paidWith === "free" ? "Free demo copy" : r.paidWith === "resale" ? `Bought from a fan · ${gbp(r.value)}` : r.paidWith === "swap" ? `Swapped${r.value ? ` + ${gbp(r.value)}` : ""}` : `${r.paidWith === "credit" ? "1 credit" : gbp(r.value)} → ${gbp(r.toArtist)} to artist`}</span></li>`).join("")}
       </ul>` : ""}`;
   $("#subscribe")?.addEventListener("click", async () => {
     await api("/api/subscription", { method: "POST" });
@@ -739,7 +833,7 @@ async function payouts() {
       ${p.payouts.map((r) => `
         <li class="payout-row">
           <strong>${esc(r.artist)}</strong><span class="r"><strong>${gbp(r.artistPayout)}</strong></span>
-          <span class="muted small">${plural(r.copiesSold, "album")} · ${r.viaCredit} by credit, ${r.viaCash} cash · recording ${gbp(r.recordingPayout)}, songwriting ${gbp(r.publishingPayout)}</span>
+          <span class="muted small">${plural(r.copiesSold, "album")} · ${r.viaCredit} by credit, ${r.viaCash} cash${r.resales ? ` · ${plural(r.resales, "resale")} (${gbp(r.resaleVolume)}) → ${gbp(r.resaleRoyalty)}` : ""} · recording ${gbp(r.recordingPayout)}, songwriting ${gbp(r.publishingPayout)}</span>
           <span class="muted small r">of ${gbp(r.gross)} · VAT ${gbp(r.vat)} · us ${gbp(r.platformFee)}</span>
         </li>`).join("")
         || `<li class="muted">No sales yet this month.</li>`}
@@ -749,7 +843,8 @@ async function payouts() {
       <ul class="rows">${p.rightsHolders.map((h) => `
         <li><span><strong>${esc(h.name)}</strong> <span class="muted small">· ${h.role === "recording" ? "recording" : "songwriting & publishing"}</span></span><span class="r">${gbp(h.amount)}</span></li>`).join("")}
       </ul>` : ""}
-    <p class="muted small" style="margin-top:14px">Subscription money for credits nobody has spent yet is held. It reaches an artist when a fan uses the credit on their album.</p>`;
+    <p class="muted small" style="margin-top:14px">When fans trade copies, ${config.resaleArtistPercent}% of the price goes to the release's rights holders and ${config.resalePlatformPercent}% to OwnMusic${p.resaleFees ? ` (${gbp(p.resaleFees)} this month)` : ""}. The seller gets the rest.</p>
+    <p class="muted small" style="margin-top:8px">Subscription money for credits nobody has spent yet is held. It reaches an artist when a fan uses the credit on their album.</p>`;
 }
 
 /* ---------- Artist ---------- */

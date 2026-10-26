@@ -10,10 +10,13 @@ import {
   DEFAULT_PUBLISHING_PERCENT, splitRights,
 } from "./money.js";
 import { seedDemo } from "./demo.js";
+import { listCopy, cancelListing, listingsFor, takeListing, tradingSummary, RESALE_ARTIST_PERCENT, RESALE_PLATFORM_PERCENT, MIN_RESALE_PENCE } from "./market.js";
+import { nftStatus, startNftWorker, tokenMetadata, walletFor, contractAddress, EXPLORER } from "./nft.js";
 import { addPost, myRooms, ownersAlsoOwn, roomFeed, roomTeaser, shelf } from "./community.js";
 
 const db = openDb();
 seedDemo(db);
+startNftWorker(db);
 const app = express();
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 const SECRET = process.env.SESSION_SECRET ?? crypto.randomBytes(32).toString("hex");
@@ -55,6 +58,7 @@ app.get("/api/config", (_req, res) =>
     artistPerAlbum: artistCut(ALBUM_PRICE_PENCE),
     defaultPublishingPercent: DEFAULT_PUBLISHING_PERCENT,
     defaultSplit: splitRights(ALBUM_PRICE_PENCE),
+    resaleArtistPercent: RESALE_ARTIST_PERCENT, resalePlatformPercent: RESALE_PLATFORM_PERCENT, minResale: MIN_RESALE_PENCE,
   }),
 );
 
@@ -184,7 +188,60 @@ app.post("/api/albums/:id/room", auth, (req, res) => {
 
 app.get("/api/rooms", auth, (req, res) => res.json(myRooms(db, (req as Authed).user.id)));
 
-app.get("/api/account", auth, (req, res) => res.json(accountSummary(db, (req as Authed).user.id)));
+app.get("/api/account", auth, (req, res) => {
+  const uid = (req as Authed).user.id;
+  const acc = accountSummary(db, uid);
+  const contract = contractAddress(db);
+  // Each copy links to its token once the minter has caught up.
+  const purchases = acc.purchases.map((p) => ({ ...p, tokenUrl: contract && p.onChain ? `${EXPLORER}/token/${contract}?a=${p.copyId}` : null }));
+  res.json({ ...acc, purchases, trading: tradingSummary(db, uid), wallet: walletFor(uid) });
+});
+
+// The market: owners sell or offer swaps, everyone else browses. Only OwnMusic moves copies.
+app.get("/api/albums/:id/market", (req, res) => {
+  const uid = Number(req.signedCookies.uid) || 0;
+  const albumId = Number(req.params.id);
+  const listings = listingsFor(db, albumId);
+  const mine = db
+    .prepare(`SELECT c.id, c.number, c.token_owner_id = c.owner_id AS onChain, c.token_tx AS tx FROM copies c WHERE c.album_id = ? AND c.owner_id = ?`)
+    .get(albumId, uid) as { id: number; number: number; onChain: number; tx: string | null } | undefined;
+  const contract = contractAddress(db);
+  res.json({
+    listings: listings.map(({ sellerId, ...l }) => ({ ...l, mine: sellerId === uid })),
+    myCopy: mine
+      ? {
+          number: mine.number,
+          listing: listings.find((l) => l.sellerId === uid) ?? null,
+          token: contract && mine.onChain ? { id: mine.id, url: `${EXPLORER}/token/${contract}?a=${mine.id}`, tx: mine.tx ? `${EXPLORER}/tx/${mine.tx}` : null } : null,
+        }
+      : null,
+  });
+});
+app.post("/api/albums/:id/listing", auth, (req, res) => {
+  try {
+    listCopy(db, (req as Authed).user.id, Number(req.params.id), req.body?.kind, Number(req.body?.price));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: (e as Error).message });
+  }
+});
+app.delete("/api/albums/:id/listing", auth, (req, res) => {
+  cancelListing(db, (req as Authed).user.id, Number(req.params.id));
+  res.json({ ok: true });
+});
+app.post("/api/listings/:id/take", auth, (req, res) => {
+  try {
+    res.json(takeListing(db, (req as Authed).user.id, Number(req.params.id)));
+  } catch (e) {
+    res.status(400).json({ error: (e as Error).message });
+  }
+});
+
+app.get("/api/nft", (_req, res) => res.json(nftStatus(db)));
+app.get("/api/nft/:tokenId", (req, res) => {
+  const meta = tokenMetadata(db, Number(req.params.tokenId));
+  meta ? res.json(meta) : res.sendStatus(404);
+});
 app.post("/api/subscription", auth, (req, res) => {
   subscribe(db, (req as Authed).user.id);
   res.json(accountSummary(db, (req as Authed).user.id));

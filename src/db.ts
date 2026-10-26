@@ -42,8 +42,9 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic-v2.db")) {
       title TEXT NOT NULL,
       audio_file TEXT NOT NULL
     );
-    -- Numbered copies: the "digital CD". Bought once, unlimited plays, never resold, one per owner.
-    -- paid_with is 'credit' (a subscription allowance) or 'cash' (an extra purchase).
+    -- Numbered copies: the "digital CD". Bought once, unlimited plays, one per owner.
+    -- paid_with is 'credit' (a subscription allowance) or 'cash' (an extra purchase), and with
+    -- value_pence describes the first sale. Copies can change hands later, only through the market.
     CREATE TABLE IF NOT EXISTS copies (
       id INTEGER PRIMARY KEY,
       album_id INTEGER NOT NULL REFERENCES albums(id),
@@ -108,6 +109,40 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic-v2.db")) {
   if (!albumCols.some((c) => c.name === "publisher")) db.exec(`ALTER TABLE albums ADD COLUMN publisher TEXT`);
   if (!albumCols.some((c) => c.name === "publishing_percent"))
     db.exec(`ALTER TABLE albums ADD COLUMN publishing_percent INTEGER NOT NULL DEFAULT 8`);
+  // Who first bought each copy, kept once it changes hands (NULL means the current owner).
+  const copyCols = db.prepare(`PRAGMA table_info(copies)`).all() as { name: string }[];
+  if (!copyCols.some((c) => c.name === "first_owner_id")) db.exec(`ALTER TABLE copies ADD COLUMN first_owner_id INTEGER REFERENCES users(id)`);
+  // Owners can sell a copy outright, or offer it as a swap for another number of the same album
+  // plus a cash top-up. Every trade goes through OwnMusic so the artist and platform cut is always taken.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS listings (
+      id INTEGER PRIMARY KEY,
+      copy_id INTEGER NOT NULL UNIQUE REFERENCES copies(id),
+      seller_id INTEGER NOT NULL REFERENCES users(id),
+      kind TEXT NOT NULL CHECK (kind IN ('sell', 'swap')),
+      price_pence INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS trades (
+      id INTEGER PRIMARY KEY,
+      album_id INTEGER NOT NULL REFERENCES albums(id),
+      copy_id INTEGER NOT NULL REFERENCES copies(id),
+      swapped_copy_id INTEGER REFERENCES copies(id),
+      seller_id INTEGER NOT NULL REFERENCES users(id),
+      buyer_id INTEGER NOT NULL REFERENCES users(id),
+      kind TEXT NOT NULL CHECK (kind IN ('sell', 'swap')),
+      price_pence INTEGER NOT NULL,
+      artist_pence INTEGER NOT NULL,
+      platform_pence INTEGER NOT NULL,
+      seller_pence INTEGER NOT NULL,
+      month TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  // NFT mirror: which fan the token on chain belongs to, as far as we've synced, and the last transaction.
+  if (!copyCols.some((c) => c.name === "token_owner_id")) db.exec(`ALTER TABLE copies ADD COLUMN token_owner_id INTEGER`);
+  if (!copyCols.some((c) => c.name === "token_tx")) db.exec(`ALTER TABLE copies ADD COLUMN token_tx TEXT`);
+  db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
   // Demo releases are flagged so the UI can label them.
   const artistCols = db.prepare(`PRAGMA table_info(artists)`).all() as { name: string }[];
   if (!artistCols.some((c) => c.name === "demo")) db.exec(`ALTER TABLE artists ADD COLUMN demo INTEGER NOT NULL DEFAULT 0`);

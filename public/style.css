@@ -359,7 +359,7 @@ a.avatar { text-decoration: none; }
 
 /* Segmented control in the album sheet */
 .seg { display: flex; gap: 4px; padding: 4px; margin-top: 24px; border-radius: 999px; background: var(--surface-2); }
-.seg button { flex: 1; font: 600 0.92rem var(--font); padding: 9px 12px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; }
+.seg button { flex: 1; white-space: nowrap; font: 600 0.92rem var(--font); padding: 9px 12px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; }
 .seg button.on { background: var(--surface); color: var(--fg); box-shadow: 0 1px 4px rgb(0 0 0 / 0.15); }
 
 /* Owners also own */
@@ -513,3 +513,23 @@ fieldset.splits p { margin: 0 0 10px; }
 .np-play { width: 76px; height: 76px; border: 0; border-radius: 50%; background: var(--fg); color: var(--bg); font-size: 1.5rem; cursor: pointer; box-shadow: var(--shadow); }
 .np-note { margin: 0; min-height: 1.4em; text-align: center; color: var(--muted); font-size: 0.9rem; }
 .np-note .btn { display: block; margin: 10px auto 0; }
+
+/* Trading */
+.market-intro { margin: 16px 0; }
+.market-mine { margin-bottom: 18px; }
+.market-mine-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.big-no { font: 700 1.8rem var(--mono); color: var(--accent); }
+.chain-link { display: inline-flex; align-items: center; gap: 4px; font: 700 0.75rem var(--mono); padding: 5px 9px; border-radius: 99px; background: color-mix(in srgb, var(--accent-2) 20%, transparent); color: var(--fg); text-decoration: none; }
+.list-form { display: grid; gap: 10px; }
+.seg.mini { display: flex; gap: 6px; margin: 0; padding: 4px; }
+.seg.mini label { flex: 1; margin: 0; }
+.seg.mini input { position: absolute; opacity: 0; }
+.seg.mini span { display: block; text-align: center; padding: 8px; border-radius: 99px; cursor: pointer; font-weight: 600; }
+.seg.mini input:checked + span { background: var(--surface); box-shadow: var(--shadow); }
+.market-h { margin: 8px 0; }
+.market-list { list-style: none; padding: 0; margin: 0; }
+.market-list li { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.market-no { font: 700 1.15rem var(--mono); }
+.market-who { min-width: 0; }
+.wallet code { font-family: var(--mono); }
+@media (max-width: 420px) { .seg button { font-size: 0.82rem; padding: 9px 6px; } }

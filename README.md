@@ -4,7 +4,7 @@ Actually own music for the same price as streaming.
 
 OwnMusic is an open-source proof of concept for a fairer way to pay for music. Fans buy albums they keep, the way they used to buy CDs. They can stream them from anywhere, and most of the money goes to the artist who made the record.
 
-It is a working demo of the model, not a business. There is no real money, the sign-in is basic, and there is no blockchain yet. The aim is to show the mechanics to artists and fans and to give developers something to build on.
+It is a working demo of the model, not a business. There is no real money, the sign-in is basic, and the NFTs live on a free test network (Base Sepolia). The aim is to show the mechanics to artists and fans and to give developers something to build on.
 
 - **Live demo:** https://ownmusic-production.up.railway.app
 - **Concept doc** (research, reasoning and risks): https://claude.ai/artifact/V5R5iF6W5z79Xz79Bt6b4x (shared by the project owner; it may need access)
@@ -52,7 +52,9 @@ Streaming pays artists fractions of a penny per play, and fans own nothing. Buyi
 | Extra albums | Anyone can buy more albums for £5 each, with or without a subscription |
 | After buying | Unlimited plays of every track on the album |
 | Before buying | A 30-second preview of any track |
-| Copies | Each purchase gets the next number for that album (#1, #2, #3…). Unlimited copies, one per person, **no resale** |
+| Copies | Each purchase gets the next number for that album (#1, #2, #3…). Unlimited copies, one per person |
+| Trading | Owners can **sell** their copy, or offer a **swap plus a top-up** so another owner can trade up (say #0003 for #0001). Only through OwnMusic. **10%** of the price goes to the release's rights holders and **5%** to OwnMusic; the seller gets 85% |
+| NFTs | Every copy is minted as an NFT on Base Sepolia (testnet) into a hidden wallet for its owner. Only OwnMusic can move the tokens, so trades can't dodge the cut |
 | Artist share | **90% of the price after VAT.** A £5 album is 83p VAT plus £4.17 net. The artist gets **£3.75** and the platform 42p, whether the fan used a credit or paid cash |
 | Unspent credits | The subscription money behind them is **held**, not paid to anyone, until the credits are used |
 | Record shelf | Every fan has a public profile (`#fan/<name>`) showing the albums they own, with copy numbers, and receipts of which artists they've backed |
@@ -68,10 +70,10 @@ These came from the project owner, Ben, and from the concept doc. Please keep th
 - **Albums only, not tracks or per-play.** It's closest to buying a record. It keeps the price meaningful (£5, not 1p), and it avoids card fees eating small payments. Per-play and per-track pricing were tried first and dropped (see [history](#how-the-model-got-here)).
 - **Artist gets 90% of net (after VAT).** It's a deliberately generous split, to show what fairer pay looks like. The platform's 10% is meant to cover running costs, not profit.
 - **Each sale belongs to the artist whose album was bought.** There is no pool split by market share as on Spotify. A credit pays the artist when it's spent on their album.
-- **Numbered copies are unlimited, with no resale.** Every buyer gets the next number, so scarcity never pushes prices up and there's no speculation. A copy belongs to one person, like a CD that two people can't both own.
+- **Numbered copies are unlimited, and tradeable only through OwnMusic.** Every buyer of a new copy still gets the next number. Ben first ruled out resale, then (2026-10-26) allowed trading because fans may want to trade up to a lower number. The condition is that the artist and platform take a cut of every trade, so trades happen only on OwnMusic's market and the NFTs can't be moved anywhere else. Defaults: 10% to rights holders, 5% to OwnMusic.
 - **Verified real artists only.** The rule against "AI slop" is about having **a real artist behind each release**, not about whether AI was used. AI is treated like sampling: allowed, but it should be credited (there's a credits field on every album).
 - **Community is for owners only.** Owning a copy is the way in, which keeps out bots and drive-by trolls, and the copy number shows when you joined. Low numbers can be rewarded with perks.
-- **Fans never see crypto.** If numbered copies are minted as NFTs later, they should be non-transferable and invisible to fans, and exist only so fans keep proof of ownership and a download if the service shuts down. Tradeable royalty tokens are out, because of FCA rules and because they turn fans into speculators.
+- **Fans never see crypto.** Copies are minted as NFTs into wallets OwnMusic holds for each fan, so nobody needs a crypto wallet. Tokens can only be moved by OwnMusic. They prove ownership publicly but carry no share of royalties: tradeable royalty tokens are out, because of FCA rules and because they turn fans into investors.
 - **Open source and public.** This is a proof of concept for others to learn from and build on.
 
 ## How the model got here
@@ -81,6 +83,7 @@ Kept here so nobody has to re-argue settled points.
 1. **1p per play, capped at £15 a month**, with each listener's money going only to the artists they played. Dropped because fans don't own anything and it still feels like renting.
 2. **Buy a single track once** (around 99p) and own a numbered copy with unlimited plays. Dropped in favour of albums, which fit the "digital CD" idea better and make fees less of a problem.
 3. **Albums only, £5, with a £10/month subscription for 2 rolling credits.** This is the current model. Artist payouts were then changed to 90% **net of VAT**.
+4. **Resale allowed, through OwnMusic only** (2026-10-26), with a cut for the artist and the platform, plus real NFT minting on a testnet.
 
 ## Running it
 
@@ -116,6 +119,10 @@ npm run dev                              # restarts on file changes
 | `DATA_DIR` | `./data` | Where the SQLite database (`ownmusic-v2.db`) and uploads (`audio/`, which also holds cover images) live |
 | `ADMIN_TOKEN` | unset | Needed to call `POST /api/admin/verify`. If unset, verification only works through the CLI script |
 | `SESSION_SECRET` | random per start | Signs the session cookie. Set it in production or everyone is signed out on every restart |
+| `NFT_OPERATOR_KEY` | unset | Private key of the wallet that deploys the contract, mints and moves tokens. Unset means no NFTs. **Keep it secret and never rotate it casually**: fans' wallet addresses are derived from it, and it owns the contract |
+| `NFT_RPC_URL` | `https://sepolia.base.org` | Chain RPC endpoint |
+| `NFT_CONTRACT` | unset | Use an existing contract. Unset means the server deploys one once the operator has test ETH, and remembers it in the `settings` table |
+| `PUBLIC_URL` | the Railway demo URL | Base for token metadata URLs (`<PUBLIC_URL>/api/nft/<tokenId>`) |
 
 ## Architecture
 
@@ -126,6 +133,8 @@ src/
   server.ts         Express app: auth, routes, uploads, admin
   money.ts          All pricing, credit, purchase and payout rules (pure functions over the DB)
   community.ts      Record shelves, owners' rooms (access, posts, perks, parties) and "owners also own"
+  market.ts         Trading: listings, sales and swaps, and the resale cut
+  nft.ts            NFT minting: hidden wallets, contract deploy, token metadata, background sync worker
   db.ts             SQLite schema, created on start
   verify-artist.ts  CLI: mark an artist as verified
 public/
@@ -136,6 +145,10 @@ public/
 test/
   money.test.ts     node:test tests for money.ts against an in-memory DB
   community.test.ts Tests for community.ts
+  market.test.ts    Tests for market.ts
+contracts/
+  OwnMusicCopies.sol  ERC-721 contract: one token per copy, only the owner (OwnMusic) can mint or move tokens
+  OwnMusicCopies.json Compiled ABI and bytecode (committed; rebuild with npm run contract:compile)
 ```
 
 - **Runtime:** Node 22 with TypeScript run directly by `tsx` (no compile step). `tsc` is only used for type-checking.
@@ -146,6 +159,8 @@ test/
 - **UI:** one page, no framework. Fonts are Space Grotesk and JetBrains Mono from Google Fonts. Albums without cover art get a generated cover, made from a hash of the album's id and title, so it's always the same. Copy numbers are shown as `#0007`, and each owned album has a certificate with a serial number, `OM-<album>-<copy>`.
 - **Installable app (PWA):** `public/manifest.webmanifest`, icons in `public/icons/` (including `apple-touch-icon.png` for iPhone) and a small service worker (`public/sw.js`) that caches the app shell, network first, and never caches `/api/` or audio. On a phone, use "Add to Home Screen" to open it full screen. The player sets Media Session metadata, so lock-screen and headphone controls work.
 - **Full-screen player:** tapping the mini player opens a Spotify-style now-playing view (`#np` in `index.html`, "Full-screen now playing" in `app.js`). It has big cover art, a scrubber, previous/play/next, the copy number or Preview badge, and a way to get the album when it's a preview. Swipe down, ⌄ or Escape closes it.
+- **Trading** (`src/market.ts`): an owner lists their copy to `sell`, or to `swap` for another number plus a cash top-up. A sale needs a buyer with no copy yet; a swap needs a buyer who owns a different number, and the two copies change owners (through a hidden holding account, because copies are one per owner). Every trade records 10% to rights holders and 5% to OwnMusic, and `payoutsForMonth` adds the rights holders' cut on top of first sales, split between recording and songwriting in the same proportion.
+- **NFTs** (`src/nft.ts`, `contracts/`): the database is the source of truth and the chain mirrors it. A worker checks every few seconds for a copy whose `token_owner_id` doesn't match its owner, then mints it or calls `marketTransfer`, one transaction at a time. `transferFrom`, `approve` and `setApprovalForAll` revert for everyone, so a token can only move when OwnMusic records a trade. Each fan's wallet address is an HMAC of the operator key and their user id; fans never see a key. Metadata is served by the app at `/api/nft/:tokenId`. Tested end to end against a local chain (ganache) with chain id 84532.
 - **Royalty splits per release:** the rights holders' 90% of net splits between the recording (master) owner and songwriting/publishing. Publishing takes `publishing_percent` of the VAT-free price (default 8%, like the UK MCPS download rate), and the recording owner gets the rest, so £3.75 becomes £3.42 + 33p by default. `albums.master_holder` and `albums.publisher` name the payees, and NULL means the album's own artist (the demo album uses that). `splitRights` in `src/money.ts` does the maths, and `payoutsForMonth` returns a `rightsHolders` list. Artists set the split on the release form, and both shares show on the album page and the payouts page.
 - **Demo release:** on start, `src/demo.ts` seeds a demo artist ("The Test Pressings") and demo album ("Ready for Release", one track, "Play Me First") from `demo/`, once. `artists.demo` flags it, and the UI labels it with a yellow Demo tag and a note, so it can't be mistaken for a real release. Nobody can sign in as the demo artist. The audio was supplied by Ben and is **not** MIT licensed (see `demo/README.md`). Anyone can add the demo album to their shelf free, with no subscription: `buyAlbum` stores it as a £0 copy (paid_with stays `cash` because of the column CHECK, reported as `free`), so it uses no credit, takes no payment and is left out of payouts and "artists backed". After buying any album, the sheet offers shortcuts to your record shelf and the owners' room.
 - **Artists hear their own releases in full**, and playback starts inside the tap so iPhone home-screen apps allow it. Owned albums play on to the next track, with next, previous and seek on the lock screen.
@@ -183,6 +198,11 @@ SQLite tables, defined in [`src/db.ts`](src/db.ts):
 | `payments` | Money in: `subscription` (£10) and `album` (£5 cash purchases) |
 | `plays` | Owners' listens, for play counts |
 | `posts` | Owners' room posts: `kind` is `post`, `perk` (with optional `max_number`) or `party` (with `starts_at`) |
+| `listings` | Copies on the market: `kind` `sell` or `swap`, and `price_pence` (the price, or the top-up for a swap). One per copy |
+| `trades` | Completed trades, with the price and the artist, platform and seller amounts. `swapped_copy_id` is the copy the buyer gave in a swap |
+| `settings` | Key/value, e.g. the deployed NFT contract address |
+
+Copies also have `first_owner_id` (set when a copy first changes hands, so the original sale stays attributable), `token_owner_id` (the fan whose wallet holds the token on chain, as far as the minter has synced) and `token_tx`.
 
 Months are stored as `YYYY-MM` strings (UTC). The database file is `ownmusic-v2.db`. The earlier per-track version used `ownmusic.db`, which is left alone and unused. There are no migrations yet. If you change the schema, either add an `ALTER TABLE` step in `openDb` or bump the file name.
 
@@ -207,7 +227,12 @@ JSON in and out. "Auth" means it needs the session cookie from `/api/login`.
 | `GET /api/albums/:id/room` | ✓ owner or artist | The owners' room feed (403 with a teaser of owners, posts, perks and the next party otherwise) |
 | `POST /api/albums/:id/room` `{body, kind?, maxNumber?, startsAt?}` | ✓ owner or artist | Post. Only the artist can use `kind` `perk` or `party` |
 | `GET /api/rooms` | ✓ | Rooms you can enter (albums you own or made), with the latest activity |
-| `GET /api/account` | ✓ | Subscription status, credits, total paid and purchases |
+| `GET /api/account` | ✓ | Subscription status, credits, total paid, purchases (with token links), trading totals and your wallet address |
+| `GET /api/albums/:id/market` | | Listings for the album, and your own copy, listing and token if you have one |
+| `POST /api/albums/:id/listing` `{kind, price}` / `DELETE` | ✓ owner | List your copy (`sell` or `swap`, price in pence) or take it off the market |
+| `POST /api/listings/:id/take` | ✓ | Buy a listed copy, or swap yours for it (`{kind, number, gaveNumber, price}`) |
+| `GET /api/nft` | | Whether minting is on, the chain, contract, operator address, copies waiting to sync and the last error |
+| `GET /api/nft/:tokenId` | | ERC-721 metadata for a copy (the contract's `tokenURI`) |
 | `POST /api/subscription` / `DELETE /api/subscription` | ✓ | Subscribe or cancel |
 | `GET /api/payouts?month=YYYY-MM` | | Per-artist sales, VAT, artist and platform amounts, plus money held for unspent credits |
 | `POST /api/artist` `{name, bio}` | ✓ | Apply as, or update, your artist profile |
@@ -223,6 +248,7 @@ The demo runs on **Railway**:
 - Variables: `DATA_DIR=/data`, `PORT=3000`, `ADMIN_TOKEN`, `SESSION_SECRET`, `NODE_ENV=production`.
 - `package.json` pins `"engines": { "node": "22.x" }`. Railway's default Node 20 crashes on start.
 - If a push doesn't start a deploy, trigger one from the Railway dashboard.
+- NFTs: `NFT_OPERATOR_KEY` is set on the service. The operator address (shown at `/api/nft`) needs free Base Sepolia test ETH from a faucet. Once it has some, the server deploys the contract and mints every copy, oldest first.
 
 Any host that runs Node 22 with a persistent disk will work the same way.
 
@@ -237,6 +263,11 @@ Things not yet decided. Please don't settle these silently in code.
 - **Licensing.** A real service needs rights for every album. The demo only plays music uploaded by the artist who owns it. The concept doc suggests starting with independent artists through distributors.
 - **Real artist verification.** Today it's an admin flag. What checks prove there's a real artist behind a release?
 - **Downloads.** Should owners be able to download files, or only if the service shuts down?
+- **Resale rights.** Under UK/EU law, selling a digital copy on isn't covered the way selling a used CD is (the *Tom Kabinet* ruling), so labels and publishers would have to agree to resale in their licences. Should trading be opt-in per release?
+- **Pricing swaps.** Today the owner of the lower number sets a cash top-up and the cut is taken on that only, so a swap with a tiny top-up pays almost nothing. Options: a minimum fee per trade, or a fee on an agreed value of both copies.
+- **Speculation and scalping.** Should resale prices be capped (for example at a multiple of £5), or listings limited for new releases?
+- **Holding fans' money.** Real trades mean holding sellers' proceeds, which needs a payments provider that handles that (Stripe Connect), and sellers who trade a lot may owe tax.
+- **NFTs on a real network.** Going to Base mainnet costs a little per mint, and putting tradeable tokens on a public chain may bring cryptoasset rules into play (FCA financial promotions). Fans' wallets are custodial today; should fans be able to take their tokens out (which would let them skip the cut)?
 
 ## Roadmap
 
@@ -248,7 +279,7 @@ Roughly in order:
 4. **Real accounts:** email sign-in, password reset and rate limiting.
 5. **Editing albums after release:** track titles, order and cover art.
 6. **More community:** live chat and audio for listening parties, notifications, moderation tools, and following other fans' shelves.
-7. **Optional NFT minting** of copies as non-transferable tokens, with crypto hidden from fans, so ownership survives the service.
+7. **NFTs beyond the testnet:** metadata on IPFS or Arweave so it outlives the server, a mainnet deployment, and a way to take a copy out if OwnMusic ever shuts down.
 
 ## Contributing
 

@@ -156,12 +156,18 @@ export type ArtistPayout = {
   recordingPayout: number;
   publishingPayout: number;
   platformFee: number;
+  /** Copies of their albums that changed hands between fans, and the artist's cut of those. */
+  resales: number;
+  resaleVolume: number;
+  resaleRoyalty: number;
 };
 
 /**
  * An artist earns when one of their albums is bought, whether with a credit or cash.
  * Each copy is a £5 sale including VAT; the artist gets 90% of the net, so £3.75 a copy.
  * Subscription money for credits nobody has spent yet isn't anyone's revenue: it's held.
+ * When fans trade copies between themselves, the artist's resale cut (from src/market.ts)
+ * is paid on top, split between recording and songwriting the same way.
  */
 export function payoutsForMonth(db: DB, month: string) {
   const copies = db
@@ -184,12 +190,19 @@ export function payoutsForMonth(db: DB, month: string) {
     h.amount += amount;
     holders.set(key, h);
   };
-  for (const c of copies) {
-    let p = byArtist.get(c.artistId);
+  const entry = (artistId: number, artist: string) => {
+    let p = byArtist.get(artistId);
     if (!p) {
-      p = { artistId: c.artistId, artist: c.artist, copiesSold: 0, viaCredit: 0, viaCash: 0, gross: 0, vat: 0, net: 0, artistPayout: 0, recordingPayout: 0, publishingPayout: 0, platformFee: 0 };
-      byArtist.set(c.artistId, p);
+      p = {
+        artistId, artist, copiesSold: 0, viaCredit: 0, viaCash: 0, gross: 0, vat: 0, net: 0, artistPayout: 0,
+        recordingPayout: 0, publishingPayout: 0, platformFee: 0, resales: 0, resaleVolume: 0, resaleRoyalty: 0,
+      };
+      byArtist.set(artistId, p);
     }
+    return p;
+  };
+  for (const c of copies) {
+    const p = entry(c.artistId, c.artist);
     const net = netOfVat(c.value);
     const toArtist = artistCut(c.value);
     p.copiesSold++;
@@ -206,11 +219,38 @@ export function payoutsForMonth(db: DB, month: string) {
     credit(c.publisher, "songwriting", split.publishing);
     p.platformFee += net - toArtist;
   }
-  const payouts = [...byArtist.values()].sort((a, b) => b.gross - a.gross);
+  const trades = db
+    .prepare(
+      `SELECT ar.id AS artistId, ar.name AS artist, t.price_pence AS price, t.artist_pence AS royalty, t.platform_pence AS fee,
+              COALESCE(al.master_holder, ar.name) AS masterHolder, COALESCE(al.publisher, ar.name) AS publisher,
+              al.publishing_percent AS publishingPercent
+       FROM trades t JOIN albums al ON al.id = t.album_id JOIN artists ar ON ar.id = al.artist_id
+       WHERE t.month = ? ORDER BY t.id`,
+    )
+    .all(month) as {
+      artistId: number; artist: string; price: number; royalty: number; fee: number;
+      masterHolder: string; publisher: string; publishingPercent: number;
+    }[];
+  let resaleFees = 0;
+  for (const t of trades) {
+    const p = entry(t.artistId, t.artist);
+    // Songwriting gets the same proportion of the royalty as of a first sale's rights share.
+    const publishing = Math.floor((t.royalty * t.publishingPercent) / Math.round(ARTIST_SHARE * 100));
+    p.resales++;
+    p.resaleVolume += t.price;
+    p.resaleRoyalty += t.royalty;
+    p.artistPayout += t.royalty;
+    p.recordingPayout += t.royalty - publishing;
+    p.publishingPayout += publishing;
+    credit(t.masterHolder, "recording", t.royalty - publishing);
+    credit(t.publisher, "songwriting", publishing);
+    resaleFees += t.fee;
+  }
+  const payouts = [...byArtist.values()].sort((a, b) => b.artistPayout - a.artistPayout);
   const moneyIn = (db.prepare(`SELECT COALESCE(SUM(amount_pence), 0) AS p FROM payments WHERE month <= ?`).get(month) as { p: number }).p;
   const spent = (db.prepare(`SELECT COALESCE(SUM(value_pence), 0) AS p FROM copies WHERE month <= ?`).get(month) as { p: number }).p;
   const rightsHolders = [...holders.values()].sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name));
-  return { month, payouts, rightsHolders, heldForUnspentCredits: moneyIn - spent };
+  return { month, payouts, rightsHolders, resaleFees, heldForUnspentCredits: moneyIn - spent };
 }
 
 /** A fan's plan, credits and purchase history. */
@@ -221,13 +261,20 @@ export function accountSummary(db: DB, userId: number) {
   const purchases = db
     .prepare(
       `SELECT al.id AS albumId, al.title, ar.name AS artist, c.number, c.paid_with AS paidWith, c.value_pence AS value, c.month,
-              c.created_at AS createdAt, al.cover_file IS NOT NULL AS hasCover
+              c.created_at AS createdAt, al.cover_file IS NOT NULL AS hasCover, c.id AS copyId,
+              COALESCE(c.token_owner_id = c.owner_id, 0) AS onChain,
+              COALESCE(c.first_owner_id, c.owner_id) != c.owner_id AS traded,
+              (SELECT t.price_pence FROM trades t WHERE (t.copy_id = c.id AND t.buyer_id = c.owner_id)
+                 OR (t.swapped_copy_id = c.id AND t.seller_id = c.owner_id) ORDER BY t.id DESC LIMIT 1) AS tradePrice,
+              (SELECT CASE WHEN t.copy_id != c.id THEN 'swap-seller' WHEN t.kind = 'swap' THEN 'swap' ELSE 'resale' END FROM trades t
+                 WHERE (t.copy_id = c.id AND t.buyer_id = c.owner_id) OR (t.swapped_copy_id = c.id AND t.seller_id = c.owner_id)
+                 ORDER BY t.id DESC LIMIT 1) AS tradeKind
        FROM copies c JOIN albums al ON al.id = c.album_id JOIN artists ar ON ar.id = al.artist_id
        WHERE c.owner_id = ? ORDER BY c.id DESC`,
     )
     .all(userId) as {
       albumId: number; title: string; artist: string; number: number; paidWith: string; value: number;
-      month: string; createdAt: string; hasCover: number;
+      month: string; createdAt: string; hasCover: number; copyId: number; onChain: number; traded: number; tradePrice: number | null; tradeKind: string | null;
     }[];
   const paid = (db.prepare(`SELECT COALESCE(SUM(amount_pence), 0) AS p FROM payments WHERE user_id = ?`).get(userId) as { p: number }).p;
   return {
@@ -235,6 +282,11 @@ export function accountSummary(db: DB, userId: number) {
     since: sub?.started_month ?? null,
     credits: creditBalance(db, userId),
     totalPaid: paid,
-    purchases: purchases.map((p) => ({ ...p, paidWith: p.value ? p.paidWith : "free", toArtist: artistCut(p.value) })),
+    // A copy that came from another fan shows how it arrived, not the first owner's purchase.
+    purchases: purchases.map(({ traded, tradePrice, tradeKind, ...p }) =>
+      traded && tradeKind
+        ? { ...p, paidWith: tradeKind === "resale" ? "resale" : "swap", value: tradeKind === "swap-seller" ? 0 : tradePrice ?? 0, toArtist: 0 }
+        : { ...p, paidWith: p.value ? p.paidWith : "free", toArtist: artistCut(p.value) },
+    ),
   };
 }
