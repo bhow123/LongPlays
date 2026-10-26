@@ -261,7 +261,7 @@ The demo runs on **Railway**:
 - `package.json` pins `"engines": { "node": "22.x" }`. Railway's default Node 20 crashes on start.
 - If a push doesn't start a deploy, trigger one from the Railway dashboard.
 - NFTs: `NFT_OPERATOR_KEY` is set on the service. The live demo uses Ethereum Sepolia (`NFT_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com`, `NFT_EXPLORER=https://sepolia.etherscan.io`, `NFT_CHAIN_NAME=Sepolia (testnet)`), because its faucets are easier to use without a wallet (for example Google Cloud's Web3 faucet). The operator address (shown at `/api/nft`) needs free test ETH. Once it has some, the server deploys the contract and mints every copy, oldest first.
-- Storage: with the `R2_*` variables set, uploads still land on the `/data` volume first and are then copied to the `longplays-media` R2 bucket, which serves all plays and downloads. The bucket stays private; create an R2 API token with Object Read & Write on that bucket only.
+- Storage: with the `R2_*` variables set, uploads still land on the `/data` volume first and are then copied to the `longplays` R2 bucket, which serves all plays and downloads. The bucket stays private; create an R2 API token with Object Read & Write on that bucket only.
 
 - Custom domains `longplays.app` and `www.longplays.app` point at the service with CNAMEs in Cloudflare (DNS only, not proxied), so Railway issues the certificates.
 
