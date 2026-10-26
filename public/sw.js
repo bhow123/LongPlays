@@ -1,6 +1,6 @@
-// Minimal service worker so OwnMusic installs as an app. It caches the app shell
+// Minimal service worker so LongPlays installs as an app. It caches the app shell
 // for fast starts and offline opening; API calls and audio always go to the network.
-const CACHE = "ownmusic-shell-v3";
+const CACHE = "longplays-shell-v4";
 const SHELL = ["/", "/style.css", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {

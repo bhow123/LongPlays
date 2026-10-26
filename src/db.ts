@@ -6,6 +6,7 @@ export const DATA_DIR = process.env.DATA_DIR ?? path.resolve("data");
 export const AUDIO_DIR = path.join(DATA_DIR, "audio");
 fs.mkdirSync(AUDIO_DIR, { recursive: true });
 
+// Internal names (this file, the escrow user, the wallet salt) keep the old OwnMusic name so existing data and wallets stay valid.
 // v2: albums + subscriptions. Earlier per-track demo data lives in ownmusic.db and is left alone.
 export function openDb(file = path.join(DATA_DIR, "ownmusic-v2.db")) {
   const db = new Database(file);
@@ -113,7 +114,7 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic-v2.db")) {
   const copyCols = db.prepare(`PRAGMA table_info(copies)`).all() as { name: string }[];
   if (!copyCols.some((c) => c.name === "first_owner_id")) db.exec(`ALTER TABLE copies ADD COLUMN first_owner_id INTEGER REFERENCES users(id)`);
   // Owners can sell a copy outright, or offer it as a swap for another number of the same album
-  // plus a cash top-up. Every trade goes through OwnMusic so the artist and platform cut is always taken.
+  // plus a cash top-up. Every trade goes through LongPlays so the artist and platform cut is always taken.
   db.exec(`
     CREATE TABLE IF NOT EXISTS listings (
       id INTEGER PRIMARY KEY,

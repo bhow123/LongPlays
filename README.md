@@ -1,12 +1,12 @@
-# OwnMusic
+# LongPlays
 
 Actually own music for the same price as streaming.
 
-OwnMusic is an open-source proof of concept for a fairer way to pay for music. Fans buy albums they keep, the way they used to buy CDs. They can stream them from anywhere, and most of the money goes to the artist who made the record.
+LongPlays is an open-source proof of concept for a fairer way to pay for music. Fans buy albums they keep, the way they used to buy CDs. They can stream them from anywhere, and most of the money goes to the artist who made the record.
 
 It is a working demo of the model, not a business. There is no real money, the sign-in is basic, and the NFTs live on a free test network (Base Sepolia). The aim is to show the mechanics to artists and fans and to give developers something to build on.
 
-- **Live demo:** https://ownmusic-production.up.railway.app
+- **Live demo:** https://longplays.app (also https://ownmusic-production.up.railway.app, from when the project was called OwnMusic)
 - **Concept doc** (research, reasoning and risks): https://claude.ai/artifact/V5R5iF6W5z79Xz79Bt6b4x (shared by the project owner; it may need access)
 - **Licence:** MIT for the code (see [Licence](#licence)). The demo album's audio is not included.
 
@@ -32,7 +32,7 @@ It is a working demo of the model, not a business. There is no real money, the s
 
 ## The idea
 
-Streaming pays artists fractions of a penny per play, and fans own nothing. Buying downloads pays artists properly, but most people stopped doing it because streaming is easier. OwnMusic tries to give fans **the convenience of streaming with the commitment of a physical product**:
+Streaming pays artists fractions of a penny per play, and fans own nothing. Buying downloads pays artists properly, but most people stopped doing it because streaming is easier. LongPlays tries to give fans **the convenience of streaming with the commitment of a physical product**:
 
 - You buy an album and **own a numbered copy of it**, like a CD with a serial number: *Album A, copy #212*.
 - You can play it as often as you like, on any device, with no per-play charges.
@@ -53,8 +53,8 @@ Streaming pays artists fractions of a penny per play, and fans own nothing. Buyi
 | After buying | Unlimited plays of every track on the album |
 | Before buying | A 30-second preview of any track |
 | Copies | Each purchase gets the next number for that album (#1, #2, #3…). Unlimited copies, one per person |
-| Trading | Owners can **sell** their copy, or offer a **swap plus a top-up** so another owner can trade up (say #0003 for #0001). Only through OwnMusic. **10%** of the price goes to the release's rights holders and **5%** to OwnMusic; the seller gets 85% |
-| NFTs | Every copy is minted as an NFT on Base Sepolia (testnet) into a hidden wallet for its owner. Only OwnMusic can move the tokens, so trades can't dodge the cut |
+| Trading | Owners can **sell** their copy, or offer a **swap plus a top-up** so another owner can trade up (say #0003 for #0001). Only through LongPlays. **10%** of the price goes to the release's rights holders and **5%** to LongPlays; the seller gets 85% |
+| NFTs | Every copy is minted as an NFT on Base Sepolia (testnet) into a hidden wallet for its owner. Only LongPlays can move the tokens, so trades can't dodge the cut |
 | Artwork | Every copy comes with the album's full-resolution artwork package: front cover, back cover, booklet pages and inserts. Owners can view and download it. The cover is public; the rest is for owners only. Each image's SHA-256 fingerprint goes into the copy's NFT metadata, and the cover can be pinned to IPFS |
 | Artist share | **90% of the price after VAT.** A £5 album is 83p VAT plus £4.17 net. The artist gets **£3.75** and the platform 42p, whether the fan used a credit or paid cash |
 | Unspent credits | The subscription money behind them is **held**, not paid to anyone, until the credits are used |
@@ -71,10 +71,10 @@ These came from the project owner, Ben, and from the concept doc. Please keep th
 - **Albums only, not tracks or per-play.** It's closest to buying a record. It keeps the price meaningful (£5, not 1p), and it avoids card fees eating small payments. Per-play and per-track pricing were tried first and dropped (see [history](#how-the-model-got-here)).
 - **Artist gets 90% of net (after VAT).** It's a deliberately generous split, to show what fairer pay looks like. The platform's 10% is meant to cover running costs, not profit.
 - **Each sale belongs to the artist whose album was bought.** There is no pool split by market share as on Spotify. A credit pays the artist when it's spent on their album.
-- **Numbered copies are unlimited, and tradeable only through OwnMusic.** Every buyer of a new copy still gets the next number. Ben first ruled out resale, then (2026-10-26) allowed trading because fans may want to trade up to a lower number. The condition is that the artist and platform take a cut of every trade, so trades happen only on OwnMusic's market and the NFTs can't be moved anywhere else. Defaults: 10% to rights holders, 5% to OwnMusic.
+- **Numbered copies are unlimited, and tradeable only through LongPlays.** Every buyer of a new copy still gets the next number. Ben first ruled out resale, then (2026-10-26) allowed trading because fans may want to trade up to a lower number. The condition is that the artist and platform take a cut of every trade, so trades happen only on LongPlays's market and the NFTs can't be moved anywhere else. Defaults: 10% to rights holders, 5% to LongPlays.
 - **Verified real artists only.** The rule against "AI slop" is about having **a real artist behind each release**, not about whether AI was used. AI is treated like sampling: allowed, but it should be credited (there's a credits field on every album).
 - **Community is for owners only.** Owning a copy is the way in, which keeps out bots and drive-by trolls, and the copy number shows when you joined. Low numbers can be rewarded with perks.
-- **Fans never see crypto.** Copies are minted as NFTs into wallets OwnMusic holds for each fan, so nobody needs a crypto wallet. Tokens can only be moved by OwnMusic. They prove ownership publicly but carry no share of royalties: tradeable royalty tokens are out, because of FCA rules and because they turn fans into investors.
+- **Fans never see crypto.** Copies are minted as NFTs into wallets LongPlays holds for each fan, so nobody needs a crypto wallet. Tokens can only be moved by LongPlays. They prove ownership publicly but carry no share of royalties: tradeable royalty tokens are out, because of FCA rules and because they turn fans into investors.
 - **Open source and public.** This is a proof of concept for others to learn from and build on.
 
 ## How the model got here
@@ -84,7 +84,7 @@ Kept here so nobody has to re-argue settled points.
 1. **1p per play, capped at £15 a month**, with each listener's money going only to the artists they played. Dropped because fans don't own anything and it still feels like renting.
 2. **Buy a single track once** (around 99p) and own a numbered copy with unlimited plays. Dropped in favour of albums, which fit the "digital CD" idea better and make fees less of a problem.
 3. **Albums only, £5, with a £10/month subscription for 2 rolling credits.** This is the current model. Artist payouts were then changed to 90% **net of VAT**.
-4. **Resale allowed, through OwnMusic only** (2026-10-26), with a cut for the artist and the platform, plus real NFT minting on a testnet.
+4. **Resale allowed, through LongPlays only** (2026-10-26), with a cut for the artist and the platform, plus real NFT minting on a testnet.
 
 ## Running it
 
@@ -151,8 +151,8 @@ test/
   community.test.ts Tests for community.ts
   market.test.ts    Tests for market.ts
 contracts/
-  OwnMusicCopies.sol  ERC-721 contract: one token per copy, only the owner (OwnMusic) can mint or move tokens
-  OwnMusicCopies.json Compiled ABI and bytecode (committed; rebuild with npm run contract:compile)
+  LongPlaysCopies.sol  ERC-721 contract: one token per copy, only the owner (LongPlays) can mint or move tokens
+  LongPlaysCopies.json Compiled ABI and bytecode (committed; rebuild with npm run contract:compile)
 ```
 
 - **Runtime:** Node 22 with TypeScript run directly by `tsx` (no compile step). `tsc` is only used for type-checking.
@@ -163,8 +163,8 @@ contracts/
 - **UI:** one page, no framework. Fonts are Space Grotesk and JetBrains Mono from Google Fonts. Albums without cover art get a generated cover, made from a hash of the album's id and title, so it's always the same. Copy numbers are shown as `#0007`, and each owned album has a certificate with a serial number, `OM-<album>-<copy>`.
 - **Installable app (PWA):** `public/manifest.webmanifest`, icons in `public/icons/` (including `apple-touch-icon.png` for iPhone) and a small service worker (`public/sw.js`) that caches the app shell, network first, and never caches `/api/` or audio. On a phone, use "Add to Home Screen" to open it full screen. The player sets Media Session metadata, so lock-screen and headphone controls work.
 - **Full-screen player:** tapping the mini player opens a Spotify-style now-playing view (`#np` in `index.html`, "Full-screen now playing" in `app.js`). It has big cover art, a scrubber, previous/play/next, the copy number or Preview badge, and a way to get the album when it's a preview. Swipe down, ⌄ or Escape closes it.
-- **Trading** (`src/market.ts`): an owner lists their copy to `sell`, or to `swap` for another number plus a cash top-up. A sale needs a buyer with no copy yet; a swap needs a buyer who owns a different number, and the two copies change owners (through a hidden holding account, because copies are one per owner). Every trade records 10% to rights holders and 5% to OwnMusic, and `payoutsForMonth` adds the rights holders' cut on top of first sales, split between recording and songwriting in the same proportion.
-- **NFTs** (`src/nft.ts`, `contracts/`): the database is the source of truth and the chain mirrors it. A worker checks every few seconds for a copy whose `token_owner_id` doesn't match its owner, then mints it or calls `marketTransfer`, one transaction at a time. `transferFrom`, `approve` and `setApprovalForAll` revert for everyone, so a token can only move when OwnMusic records a trade. Each fan's wallet address is an HMAC of the operator key and their user id; fans never see a key. Metadata is served by the app at `/api/nft/:tokenId`. Tested end to end against a local chain (ganache) with chain id 84532.
+- **Trading** (`src/market.ts`): an owner lists their copy to `sell`, or to `swap` for another number plus a cash top-up. A sale needs a buyer with no copy yet; a swap needs a buyer who owns a different number, and the two copies change owners (through a hidden holding account, because copies are one per owner). Every trade records 10% to rights holders and 5% to LongPlays, and `payoutsForMonth` adds the rights holders' cut on top of first sales, split between recording and songwriting in the same proportion.
+- **NFTs** (`src/nft.ts`, `contracts/`): the database is the source of truth and the chain mirrors it. A worker checks every few seconds for a copy whose `token_owner_id` doesn't match its owner, then mints it or calls `marketTransfer`, one transaction at a time. `transferFrom`, `approve` and `setApprovalForAll` revert for everyone, so a token can only move when LongPlays records a trade. Each fan's wallet address is an HMAC of the operator key and their user id; fans never see a key. Metadata is served by the app at `/api/nft/:tokenId`. Tested end to end against a local chain (ganache) with chain id 84532.
 - **Royalty splits per release:** the rights holders' 90% of net splits between the recording (master) owner and songwriting/publishing. Publishing takes `publishing_percent` of the VAT-free price (default 8%, like the UK MCPS download rate), and the recording owner gets the rest, so £3.75 becomes £3.42 + 33p by default. `albums.master_holder` and `albums.publisher` name the payees, and NULL means the album's own artist (the demo album uses that). `splitRights` in `src/money.ts` does the maths, and `payoutsForMonth` returns a `rightsHolders` list. Artists set the split on the release form, and both shares show on the album page and the payouts page.
 - **Demo release:** on start, `src/demo.ts` seeds a demo artist ("The Test Pressings") and demo album ("Ready for Release", one track, "Play Me First") from `demo/`, once. `artists.demo` flags it, and the UI labels it with a yellow Demo tag and a note, so it can't be mistaken for a real release. Nobody can sign in as the demo artist. The audio was supplied by Ben and is **not** MIT licensed (see `demo/README.md`). Anyone can add the demo album to their shelf free, with no subscription: `buyAlbum` stores it as a £0 copy (paid_with stays `cash` because of the column CHECK, reported as `free`), so it uses no credit, takes no payment and is left out of payouts and "artists backed". After buying any album, the sheet offers shortcuts to your record shelf and the owners' room.
 - **Artists hear their own releases in full**, and playback starts inside the tap so iPhone home-screen apps allow it. Owned albums play on to the next track, with next, previous and seek on the lock screen.
@@ -251,12 +251,14 @@ JSON in and out. "Auth" means it needs the session cookie from `/api/login`.
 
 The demo runs on **Railway**:
 
-- A Railway project called `ownmusic`, with one service built from this repo by Railpack (`npm install`, then `npm start`).
+- A Railway project called `ownmusic` (the old name), with one service built from this repo by Railpack (`npm install`, then `npm start`).
 - A **volume mounted at `/data`**, with `DATA_DIR=/data`. Without a volume, every deploy wipes the database and the audio.
 - Variables: `DATA_DIR=/data`, `PORT=3000`, `ADMIN_TOKEN`, `SESSION_SECRET`, `NODE_ENV=production`.
 - `package.json` pins `"engines": { "node": "22.x" }`. Railway's default Node 20 crashes on start.
 - If a push doesn't start a deploy, trigger one from the Railway dashboard.
 - NFTs: `NFT_OPERATOR_KEY` is set on the service. The operator address (shown at `/api/nft`) needs free Base Sepolia test ETH from a faucet. Once it has some, the server deploys the contract and mints every copy, oldest first.
+
+- Custom domains `longplays.app` and `www.longplays.app` point at the service with CNAMEs in Cloudflare (DNS only, not proxied), so Railway issues the certificates.
 
 Any host that runs Node 22 with a persistent disk will work the same way.
 
@@ -288,7 +290,7 @@ Roughly in order:
 4. **Real accounts:** email sign-in, password reset and rate limiting.
 5. **Editing albums after release:** track titles, order and cover art.
 6. **More community:** live chat and audio for listening parties, notifications, moderation tools, and following other fans' shelves.
-7. **NFTs beyond the testnet:** metadata on IPFS or Arweave so it outlives the server, a mainnet deployment, and a way to take a copy out if OwnMusic ever shuts down.
+7. **NFTs beyond the testnet:** metadata on IPFS or Arweave so it outlives the server, a mainnet deployment, and a way to take a copy out if LongPlays ever shuts down.
 
 ## Contributing
 
@@ -302,6 +304,6 @@ Issues and pull requests are welcome. A few conventions:
 
 The code is released under the [MIT Licence](LICENSE): anyone can use, change and redistribute it, commercially or not, as long as they keep the copyright notice.
 
-**The demo audio is not covered.** `demo/one-i-can-release.m4a` ("Play Me First" on the demo album) is © Ben, all rights reserved, and is only included so the demo has something to play. Don't reuse it outside running OwnMusic. See `demo/README.md`.
+**The demo audio is not covered.** `demo/one-i-can-release.m4a` ("Play Me First" on the demo album) is © Ben, all rights reserved, and is only included so the demo has something to play. Don't reuse it outside running LongPlays. See `demo/README.md`.
 
-Music that artists upload to a running OwnMusic belongs to them. The code licence doesn't grant any rights to it.
+Music that artists upload to a running LongPlays belongs to them. The code licence doesn't grant any rights to it.

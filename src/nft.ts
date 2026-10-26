@@ -10,15 +10,15 @@ import { listArtwork } from "./artwork.js";
 // minting new copies and moving tokens when copies change hands on the market.
 //
 // Wallets are hidden from fans. Each fan gets an address derived from the operator key, and
-// only the operator (OwnMusic) can move tokens, so trades can't skip the market and its cut.
+// only the operator (LongPlays) can move tokens, so trades can't skip the market and its cut.
 
 const RPC_URL = process.env.NFT_RPC_URL ?? "https://sepolia.base.org";
 const OPERATOR_KEY = process.env.NFT_OPERATOR_KEY;
-const PUBLIC_URL = (process.env.PUBLIC_URL ?? "https://ownmusic-production.up.railway.app").replace(/\/$/, "");
+const PUBLIC_URL = (process.env.PUBLIC_URL ?? "https://longplays.app").replace(/\/$/, "");
 export const EXPLORER = process.env.NFT_EXPLORER ?? "https://sepolia.basescan.org";
 export const CHAIN_NAME = process.env.NFT_CHAIN_NAME ?? "Base Sepolia (testnet)";
 
-const artifact = JSON.parse(fs.readFileSync(path.resolve("contracts", "OwnMusicCopies.json"), "utf8")) as { abi: object[]; bytecode: string };
+const artifact = JSON.parse(fs.readFileSync(path.resolve("contracts", "LongPlaysCopies.json"), "utf8")) as { abi: object[]; bytecode: string };
 
 export const nftEnabled = () => !!OPERATOR_KEY;
 
@@ -78,7 +78,7 @@ export function tokenMetadata(db: DB, tokenId: number) {
   const front = art.find((a) => a.kind === "cover");
   return {
     name: `${c.title} ${no}`,
-    description: `Copy ${no} of "${c.title}" by ${c.artist} on OwnMusic. It plays in full for whoever owns it and can only change hands on the OwnMusic market.${c.demo ? " This is a demo release." : ""}`,
+    description: `Copy ${no} of "${c.title}" by ${c.artist} on LongPlays. It plays in full for whoever owns it and can only change hands on the LongPlays market.${c.demo ? " This is a demo release." : ""}`,
     image: front?.uri ?? (c.hasCover ? `${PUBLIC_URL}/api/albums/${c.albumId}/cover` : `${PUBLIC_URL}/icons/icon-512.png`),
     external_url: `${PUBLIC_URL}/`,
     attributes: [
@@ -119,7 +119,7 @@ export function startNftWorker(db: DB, intervalMs = 4000) {
         await deployed.waitForDeployment();
         address = await deployed.getAddress();
         setSetting(db, "nft_contract", address);
-        console.log("nft: deployed OwnMusicCopies at", address);
+        console.log("nft: deployed LongPlaysCopies at", address);
       }
       const contract = new Contract(address, artifact.abi, operator);
       // One copy at a time keeps nonces simple; the oldest out-of-step copy goes first.

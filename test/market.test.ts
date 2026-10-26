@@ -16,7 +16,7 @@ const oct = new Date("2026-10-10T12:00:00Z");
 const numberOf = (db: ReturnType<typeof openDb>, uid: number, album: number) =>
   (db.prepare(`SELECT number FROM copies WHERE owner_id = ? AND album_id = ?`).get(uid, album) as { number: number } | undefined)?.number;
 
-test("resale split: 10% to the artist, 5% to OwnMusic, the rest to the seller", () => {
+test("resale split: 10% to the artist, 5% to LongPlays, the rest to the seller", () => {
   assert.deepEqual(resaleSplit(2000), { artist: 200, platform: 100, seller: 1700 });
   assert.deepEqual(resaleSplit(333), { artist: 33, platform: 16, seller: 284 });
 });

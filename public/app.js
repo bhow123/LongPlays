@@ -198,7 +198,7 @@ async function openAlbum(id, pane = "tracks") {
         <p class="eyebrow">${a.demo ? "Demo album" : "Album"} · ${plural(a.tracks.length, "track")}</p>
         <h2 id="sheet-title">${esc(a.title)}</h2>
         <p class="by">${esc(a.artist)}</p>
-        ${a.demo ? `<p class="demo-note">This is a demo release by a demo artist, here so you can try OwnMusic. Add a free copy, no subscription needed, and it lands on your record shelf and opens the owners' room.</p>` : ""}
+        ${a.demo ? `<p class="demo-note">This is a demo release by a demo artist, here so you can try LongPlays. Add a free copy, no subscription needed, and it lands on your record shelf and opens the owners' room.</p>` : ""}
         ${justBought === a.id ? `<div class="next-steps">
           <strong>${copyNo(a.myCopy)} is yours. Every track now plays in full.</strong>
           <button class="btn btn-primary" data-play="${a.tracks[0]?.id}">▶ Play the full album</button>
@@ -408,7 +408,7 @@ async function loadMarket(a) {
   const mine = m.myCopy;
   const others = m.listings.filter((l) => !l.mine);
   $("#market").innerHTML = `
-    <p class="muted small market-intro">Copies can change hands, but only here. Sell yours, or trade up to a lower number by offering a swap plus a top-up. Every trade sends ${config.resaleArtistPercent}% to ${esc(a.artist)} and ${config.resalePlatformPercent}% to OwnMusic.${a.demo ? " Demo money only." : ""}</p>
+    <p class="muted small market-intro">Copies can change hands, but only here. Sell yours, or trade up to a lower number by offering a swap plus a top-up. Every trade sends ${config.resaleArtistPercent}% to ${esc(a.artist)} and ${config.resalePlatformPercent}% to LongPlays.${a.demo ? " Demo money only." : ""}</p>
     ${mine ? `
       <div class="panel market-mine">
         <div class="market-mine-head">
@@ -444,7 +444,7 @@ async function loadMarket(a) {
     const preview = () => {
       const price = Math.round(Number(form.price.value) * 100) || 0;
       const c = resaleCut(price);
-      $("#list-preview").textContent = `You get ${gbp(c.seller)} · ${gbp(c.artist)} to ${a.artist} · ${gbp(c.platform)} to OwnMusic`;
+      $("#list-preview").textContent = `You get ${gbp(c.seller)} · ${gbp(c.artist)} to ${a.artist} · ${gbp(c.platform)} to LongPlays`;
     };
     form.addEventListener("input", preview);
     preview();
@@ -836,7 +836,7 @@ async function plan() {
           <li><span>Spent on the market</span><span class="r">${gbp(acc.trading.spent)}</span></li>
           <li><span>Earned selling copies</span><span class="r">${gbp(acc.trading.earned)}</span></li>` : ""}
         </ul>
-        ${acc.wallet ? `<p class="muted small wallet">Your copies are NFTs, kept for you in wallet <a href="${nftInfo?.explorer}/address/${acc.wallet}" target="_blank" rel="noopener"><code>${acc.wallet.slice(0, 6)}…${acc.wallet.slice(-4)}</code></a>. Only OwnMusic can move them, so every trade pays the artist.</p>` : ""}
+        ${acc.wallet ? `<p class="muted small wallet">Your copies are NFTs, kept for you in wallet <a href="${nftInfo?.explorer}/address/${acc.wallet}" target="_blank" rel="noopener"><code>${acc.wallet.slice(0, 6)}…${acc.wallet.slice(-4)}</code></a>. Only LongPlays can move them, so every trade pays the artist.</p>` : ""}
       </div>
     </div>
     ${acc.purchases.length ? `
@@ -883,7 +883,7 @@ async function payouts() {
         <div><strong>${gbp(recording)}</strong><i style="background:var(--accent)"></i>Recording</div>
         <div><strong>${gbp(publishing)}</strong><i class="i-song"></i>Songwriting</div>
         <div><strong>${gbp(vat)}</strong><i style="background:var(--vat)"></i>VAT</div>
-        <div><strong>${gbp(platform)}</strong><i style="background:var(--accent-2)"></i>OwnMusic</div>
+        <div><strong>${gbp(platform)}</strong><i style="background:var(--accent-2)"></i>LongPlays</div>
       </div>
     </div>
     <h2 style="margin:32px 0 0">${esc(monthName(p.month))}</h2>
@@ -907,7 +907,7 @@ async function payouts() {
       <ul class="rows">${p.rightsHolders.map((h) => `
         <li><span><strong>${esc(h.name)}</strong> <span class="muted small">· ${h.role === "recording" ? "recording" : "songwriting & publishing"}</span></span><span class="r">${gbp(h.amount)}</span></li>`).join("")}
       </ul>` : ""}
-    <p class="muted small" style="margin-top:14px">When fans trade copies, ${config.resaleArtistPercent}% of the price goes to the release's rights holders and ${config.resalePlatformPercent}% to OwnMusic${p.resaleFees ? ` (${gbp(p.resaleFees)} this month)` : ""}. The seller gets the rest.</p>
+    <p class="muted small" style="margin-top:14px">When fans trade copies, ${config.resaleArtistPercent}% of the price goes to the release's rights holders and ${config.resalePlatformPercent}% to LongPlays${p.resaleFees ? ` (${gbp(p.resaleFees)} this month)` : ""}. The seller gets the rest.</p>
     <p class="muted small" style="margin-top:8px">Subscription money for credits nobody has spent yet is held. It reaches an artist when a fan uses the credit on their album.</p>`;
 }
 

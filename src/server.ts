@@ -209,7 +209,7 @@ app.get("/api/account", auth, (req, res) => {
   res.json({ ...acc, purchases, trading: tradingSummary(db, uid), wallet: walletFor(uid) });
 });
 
-// The market: owners sell or offer swaps, everyone else browses. Only OwnMusic moves copies.
+// The market: owners sell or offer swaps, everyone else browses. Only LongPlays moves copies.
 app.get("/api/albums/:id/market", (req, res) => {
   const uid = Number(req.signedCookies.uid) || 0;
   const albumId = Number(req.params.id);
@@ -380,4 +380,4 @@ app.post("/api/admin/verify", (req, res) => {
 });
 
 const port = Number(process.env.PORT ?? 3000);
-app.listen(port, () => console.log(`OwnMusic on http://localhost:${port}`));
+app.listen(port, () => console.log(`LongPlays on http://localhost:${port}`));

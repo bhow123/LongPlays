@@ -1,4 +1,4 @@
-// Compiles contracts/OwnMusicCopies.sol into contracts/OwnMusicCopies.json (ABI + bytecode).
+// Compiles contracts/LongPlaysCopies.sol into contracts/LongPlaysCopies.json (ABI + bytecode).
 // The JSON is committed, so the server never needs the compiler. Run: npm run contract:compile
 import fs from "node:fs";
 import path from "node:path";
@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const solc = require("solc");
-const file = "OwnMusicCopies.sol";
+const file = "LongPlaysCopies.sol";
 const input = {
   language: "Solidity",
   sources: { [file]: { content: fs.readFileSync(path.resolve("contracts", file), "utf8") } },
@@ -25,9 +25,9 @@ if (errors.length) {
   for (const e of errors) console.error(e.formattedMessage);
   process.exit(1);
 }
-const c = out.contracts[file].OwnMusicCopies;
+const c = out.contracts[file].LongPlaysCopies;
 fs.writeFileSync(
-  path.resolve("contracts", "OwnMusicCopies.json"),
+  path.resolve("contracts", "LongPlaysCopies.json"),
   JSON.stringify({ compiler: solc.version(), abi: c.abi, bytecode: `0x${c.evm.bytecode.object}` }, null, 2) + "\n",
 );
 console.log("compiled", solc.version());

@@ -115,7 +115,7 @@ export async function pinNextArtwork(db: DB) {
   if (!a) return false;
   const form = new FormData();
   form.append("file", new Blob([fs.readFileSync(path.join(AUDIO_DIR, a.file))], { type: a.mime }), a.file);
-  form.append("pinataMetadata", JSON.stringify({ name: `ownmusic-album-${a.albumId}-${a.title}` }));
+  form.append("pinataMetadata", JSON.stringify({ name: `longplays-album-${a.albumId}-${a.title}` }));
   const res = await fetch(PINATA_URL, { method: "POST", headers: { Authorization: `Bearer ${PINATA_JWT}` }, body: form });
   if (!res.ok) throw new Error(`IPFS pin failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
   const { IpfsHash } = (await res.json()) as { IpfsHash: string };

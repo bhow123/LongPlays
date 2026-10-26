@@ -1,6 +1,6 @@
 {
-  "name": "OwnMusic",
-  "short_name": "OwnMusic",
+  "name": "LongPlays",
+  "short_name": "LongPlays",
   "description": "Own your music again. Albums you keep, streamed anywhere, with 90% going to the artist.",
   "id": "/",
   "start_url": "/#albums",
