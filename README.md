@@ -55,6 +55,7 @@ Streaming pays artists fractions of a penny per play, and fans own nothing. Buyi
 | Copies | Each purchase gets the next number for that album (#1, #2, #3…). Unlimited copies, one per person |
 | Trading | Owners can **sell** their copy, or offer a **swap plus a top-up** so another owner can trade up (say #0003 for #0001). Only through OwnMusic. **10%** of the price goes to the release's rights holders and **5%** to OwnMusic; the seller gets 85% |
 | NFTs | Every copy is minted as an NFT on Base Sepolia (testnet) into a hidden wallet for its owner. Only OwnMusic can move the tokens, so trades can't dodge the cut |
+| Artwork | Every copy comes with the album's full-resolution artwork package: front cover, back cover, booklet pages and inserts. Owners can view and download it. The cover is public; the rest is for owners only. Each image's SHA-256 fingerprint goes into the copy's NFT metadata, and the cover can be pinned to IPFS |
 | Artist share | **90% of the price after VAT.** A £5 album is 83p VAT plus £4.17 net. The artist gets **£3.75** and the platform 42p, whether the fan used a credit or paid cash |
 | Unspent credits | The subscription money behind them is **held**, not paid to anyone, until the credits are used |
 | Record shelf | Every fan has a public profile (`#fan/<name>`) showing the albums they own, with copy numbers, and receipts of which artists they've backed |
@@ -123,6 +124,9 @@ npm run dev                              # restarts on file changes
 | `NFT_RPC_URL` | `https://sepolia.base.org` | Chain RPC endpoint |
 | `NFT_CONTRACT` | unset | Use an existing contract. Unset means the server deploys one once the operator has test ETH, and remembers it in the `settings` table |
 | `PUBLIC_URL` | the Railway demo URL | Base for token metadata URLs (`<PUBLIC_URL>/api/nft/<tokenId>`) |
+| `PINATA_JWT` | unset | Pinata API token. When set, album covers are pinned to IPFS and the NFT `image` becomes `ipfs://<cid>` |
+| `PINATA_URL` | `https://api.pinata.cloud` | Pinata API base (for testing against a mock) |
+| `PIN_ALL_ARTWORK` | unset | `1` also pins the owners-only pieces. Anything on IPFS is public, so this makes the whole package downloadable by anyone with the CID |
 
 ## Architecture
 
@@ -201,6 +205,7 @@ SQLite tables, defined in [`src/db.ts`](src/db.ts):
 | `listings` | Copies on the market: `kind` `sell` or `swap`, and `price_pence` (the price, or the top-up for a swap). One per copy |
 | `trades` | Completed trades, with the price and the artist, platform and seller amounts. `swapped_copy_id` is the copy the buyer gave in a swap |
 | `settings` | Key/value, e.g. the deployed NFT contract address |
+| `artwork` | The album package's images at full resolution: `kind` (`cover`, `back`, `booklet`, `insert`), position, title, file, MIME type, bytes, width, height, `sha256` and `ipfs_cid` once pinned |
 
 Copies also have `first_owner_id` (set when a copy first changes hands, so the original sale stays attributable), `token_owner_id` (the fan whose wallet holds the token on chain, as far as the minter has synced) and `token_tx`.
 
@@ -222,6 +227,9 @@ JSON in and out. "Auth" means it needs the session cookie from `/api/login`.
 | `POST /api/albums/:id/buy` | ✓ | Buy the next copy: returns `{number, paidWith, alreadyOwned}` |
 | `GET /api/albums/:id/owners` | | Copy numbers and owner names |
 | `GET /api/albums/:id/cover` | | The album's cover image (404 if none) |
+| `GET /api/albums/:id/artwork` | | The artwork package: each piece's kind, size, fingerprint, and whether it's locked for you |
+| `GET /api/artwork/:id` (`?download=1`) | cover public, rest ✓ owner or artist | The full-resolution image, or a download |
+| `POST /api/albums/:id/artwork` (multipart: `artwork`[], `kind?`) | ✓ the album's artist | Add artwork. A new `cover` replaces the old one |
 | `GET /api/fans/:name` | | A fan's record shelf: copies owned, artists backed, and their artist name if they have one |
 | `GET /api/albums/:id/also` | | Albums that this album's owners also own, most shared first |
 | `GET /api/albums/:id/room` | ✓ owner or artist | The owners' room feed (403 with a teaser of owners, posts, perks and the next party otherwise) |
@@ -236,7 +244,7 @@ JSON in and out. "Auth" means it needs the session cookie from `/api/login`.
 | `POST /api/subscription` / `DELETE /api/subscription` | ✓ | Subscribe or cancel |
 | `GET /api/payouts?month=YYYY-MM` | | Per-artist sales, VAT, artist and platform amounts, plus money held for unspent credits |
 | `POST /api/artist` `{name, bio}` | ✓ | Apply as, or update, your artist profile |
-| `POST /api/artist/albums` (multipart: `title`, `credits`, `cover`, `audio`[]) | ✓ verified artist | Release an album (up to 40 audio files and 1 image, 100 MB each) |
+| `POST /api/artist/albums` (multipart: `title`, `credits`, `cover`, `artwork`[], `audio`[]) | ✓ verified artist | Release an album (up to 40 audio files and 1 image, 100 MB each) |
 | `POST /api/admin/verify` `{name}` + `x-admin-token` header | admin | Verify an artist by name |
 
 ## Deploying
@@ -262,7 +270,8 @@ Things not yet decided. Please don't settle these silently in code.
 - **Pricing per album.** It's a flat £5 today. Should artists be able to set their own price, or should EPs cost less?
 - **Licensing.** A real service needs rights for every album. The demo only plays music uploaded by the artist who owns it. The concept doc suggests starting with independent artists through distributors.
 - **Real artist verification.** Today it's an admin flag. What checks prove there's a real artist behind a release?
-- **Downloads.** Should owners be able to download files, or only if the service shuts down?
+- **Downloads.** Owners can download the artwork. Should they be able to download the audio, or only if the service shuts down?
+- **Artwork on IPFS.** Only the cover is pinned, because anything on IPFS is public. Pinning the whole package makes the NFT self-contained but gives it away to non-owners. Encrypting it before pinning is an option.
 - **Resale rights.** Under UK/EU law, selling a digital copy on isn't covered the way selling a used CD is (the *Tom Kabinet* ruling), so labels and publishers would have to agree to resale in their licences. Should trading be opt-in per release?
 - **Pricing swaps.** Today the owner of the lower number sets a cash top-up and the cut is taken on that only, so a swap with a tiny top-up pays almost nothing. Options: a minimum fee per trade, or a fee on an agreed value of both copies.
 - **Speculation and scalping.** Should resale prices be capped (for example at a multiple of £5), or listings limited for new releases?

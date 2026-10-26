@@ -1,0 +1,23 @@
+<html><head><link rel="stylesheet" href="base.css"><style>
+body{padding:80px}
+h1{font:700 54px 'Space Grotesk';letter-spacing:-.02em}
+.by{font:500 26px 'Space Grotesk';color:#6b6470;margin-top:6px}
+.side{margin-top:70px;font:700 18px 'JetBrains Mono';letter-spacing:.3em;color:#e5482a}
+ol{list-style:none;padding:0;margin-top:20px;border-top:3px solid #16131a}
+li{display:flex;justify-content:space-between;padding:22px 0;border-bottom:1px solid #16131a33;font:500 34px 'Space Grotesk'}
+li span{font:500 28px 'JetBrains Mono'}
+.notes{margin-top:60px;font:400 22px/1.5 'Space Grotesk';max-width:620px;color:#3a3540}
+.cat{position:absolute;left:80px;bottom:70px;font:500 16px 'JetBrains Mono';letter-spacing:.15em;color:#6b6470;line-height:1.8}
+.code{position:absolute;right:80px;bottom:70px;display:flex;gap:4px;align-items:flex-end}
+.code i{display:block;width:6px;background:#16131a}
+.demo{right:80px;top:80px}
+</style></head><body>
+<h1>Ready for Release</h1><div class="by">The Test Pressings</div>
+<div class="side">SIDE A</div>
+<ol><li>1. Play Me First<span>2:25</span></li></ol>
+<p class="notes">A demo release for the OwnMusic proof of concept. Not a real artist and not a real album: it's here so you can own a numbered copy, see it on your shelf, join the owners' room and trade it.</p>
+<div class="cat">OM-DEMO-001 · DEMO PRESSING<br>Track supplied by Ben. All rights reserved.<br>Code MIT · ownmusic</div>
+<div class="code" id="c"></div>
+<div class="demo">DEMO</div><div class="grain"></div>
+<script>const c=document.getElementById('c');[3,1,2,1,3,2,1,1,3,1,2,3,1,2,1,3,1,1,2,3,2,1].forEach((w,i)=>{const b=document.createElement('i');b.style.width=w*3+'px';b.style.height=(i%5?90:110)+'px';b.style.marginRight=(i%2?6:3)+'px';c.appendChild(b)})</script>
+</body></html>

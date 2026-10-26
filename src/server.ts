@@ -9,13 +9,24 @@ import {
   payoutsForMonth, monthOf, ALBUM_PRICE_PENCE, SUBSCRIPTION_PENCE, CREDITS_PER_MONTH, ARTIST_SHARE, PREVIEW_SECONDS, VAT_RATE, artistCut,
   DEFAULT_PUBLISHING_PERCENT, splitRights,
 } from "./money.js";
-import { seedDemo } from "./demo.js";
+import { seedDemo, seedDemoArtwork } from "./demo.js";
+import { addArtwork, artworkFile, backfillCovers, kindFromName, listArtwork, pinNextArtwork, ipfsEnabled, ARTWORK_KINDS, type ArtworkKind } from "./artwork.js";
 import { listCopy, cancelListing, listingsFor, takeListing, tradingSummary, RESALE_ARTIST_PERCENT, RESALE_PLATFORM_PERCENT, MIN_RESALE_PENCE } from "./market.js";
 import { nftStatus, startNftWorker, tokenMetadata, walletFor, contractAddress, EXPLORER } from "./nft.js";
 import { addPost, myRooms, ownersAlsoOwn, roomFeed, roomTeaser, shelf } from "./community.js";
 
 const db = openDb();
 seedDemo(db);
+backfillCovers(db);
+seedDemoArtwork(db);
+if (ipfsEnabled()) {
+  let pinning = false;
+  setInterval(async () => {
+    if (pinning) return;
+    pinning = true;
+    try { await pinNextArtwork(db); } catch (e) { console.error((e as Error).message); } finally { pinning = false; }
+  }, 10_000);
+}
 startNftWorker(db);
 const app = express();
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
@@ -94,6 +105,7 @@ app.get("/api/albums", (req, res) => {
               (SELECT COUNT(*) FROM copies c WHERE c.album_id = al.id) AS copiesSold,
               (SELECT number FROM copies c WHERE c.album_id = al.id AND c.owner_id = ?) AS myCopy,
               (ar.user_id = ?) AS isMine, ar.demo,
+              (SELECT COUNT(*) FROM artwork aw WHERE aw.album_id = al.id) AS artworkCount,
               COALESCE(al.master_holder, ar.name) AS masterHolder, COALESCE(al.publisher, ar.name) AS publisher,
               al.publishing_percent AS publishingPercent
        FROM albums al JOIN artists ar ON ar.id = al.artist_id
@@ -237,6 +249,28 @@ app.post("/api/listings/:id/take", auth, (req, res) => {
   }
 });
 
+// Artwork: the cover is public; the rest of the package is for owners and the artist.
+const canSeePackage = (uid: number, albumId: number) =>
+  ownsAlbum(db, uid, albumId) ||
+  !!db.prepare(`SELECT 1 FROM albums al JOIN artists ar ON ar.id = al.artist_id WHERE al.id = ? AND ar.user_id = ?`).get(albumId, uid);
+app.get("/api/albums/:id/artwork", (req, res) => {
+  const albumId = Number(req.params.id);
+  const open = canSeePackage(Number(req.signedCookies.uid) || 0, albumId);
+  res.json(
+    listArtwork(db, albumId).map((a) => {
+      const visible = open || a.kind === "cover";
+      return { ...a, locked: !visible, url: visible ? `/api/artwork/${a.id}` : null, ipfs: a.ipfsCid ? `https://ipfs.io/ipfs/${a.ipfsCid}` : null };
+    }),
+  );
+});
+app.get("/api/artwork/:id", (req, res) => {
+  const a = artworkFile(db, Number(req.params.id));
+  if (!a) return res.sendStatus(404);
+  if (a.kind !== "cover" && !canSeePackage(Number(req.signedCookies.uid) || 0, a.albumId)) return res.sendStatus(403);
+  const album = db.prepare(`SELECT title FROM albums WHERE id = ?`).get(a.albumId) as { title: string };
+  if (req.query.download) res.attachment(`${album.title} - ${a.title}${path.extname(a.file)}`.replace(/[\\/:*?"<>|]/g, ""));
+  res.set("cache-control", a.kind === "cover" ? "public, max-age=86400" : "private, max-age=86400").sendFile(path.join(AUDIO_DIR, a.file));
+});
 app.get("/api/nft", (_req, res) => res.json(nftStatus(db)));
 app.get("/api/nft/:tokenId", (req, res) => {
   const meta = tokenMetadata(db, Number(req.params.tokenId));
@@ -276,13 +310,28 @@ const upload = multer({
   }),
   limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (_req, file, cb) =>
-    cb(null, file.fieldname === "cover" ? file.mimetype.startsWith("image/") : file.mimetype.startsWith("audio/")),
+    cb(null, file.fieldname === "audio" ? file.mimetype.startsWith("audio/") : file.mimetype.startsWith("image/")),
 });
 
 const albumUpload = upload.fields([
   { name: "audio", maxCount: 40 },
   { name: "cover", maxCount: 1 },
+  { name: "artwork", maxCount: 40 },
 ]);
+const artworkUpload = upload.array("artwork", 40);
+app.post("/api/albums/:id/artwork", auth, artworkUpload, (req, res) => {
+  const albumId = Number(req.params.id);
+  const mine = db.prepare(`SELECT 1 FROM albums al JOIN artists ar ON ar.id = al.artist_id WHERE al.id = ? AND ar.user_id = ?`).get(albumId, (req as Authed).user.id);
+  if (!mine) return res.status(403).json({ error: "only the album's artist can add artwork" });
+  const files = (req.files ?? []) as Express.Multer.File[];
+  if (!files.length) return res.status(400).json({ error: "add at least one image" });
+  const chosen = String(req.body.kind ?? "");
+  const kind = (f: Express.Multer.File): ArtworkKind => (ARTWORK_KINDS.includes(chosen as ArtworkKind) ? (chosen as ArtworkKind) : kindFromName(f.originalname));
+  const sorted = [...files].sort((a, b) => a.originalname.localeCompare(b.originalname, undefined, { numeric: true }));
+  for (const f of sorted) addArtwork(db, albumId, f.filename, kind(f));
+  res.json({ added: sorted.length });
+});
+
 
 app.post("/api/artist/albums", auth, albumUpload, (req, res) => {
   const artist = artistFor((req as Authed).user.id);
@@ -312,6 +361,13 @@ app.post("/api/artist/albums", auth, albumUpload, (req, res) => {
       const name = path.parse(f.originalname).name.replace(/^\d+[\s._-]*/, "").trim() || f.originalname;
       insert.run(id, i + 1, name.slice(0, 120), f.filename);
     });
+    // The rest of the package: back cover, booklet pages and inserts, in file-name order.
+    if (cover) addArtwork(db, id, cover, "cover");
+    const art = [...(uploaded.artwork ?? [])].sort((a, b) => a.originalname.localeCompare(b.originalname, undefined, { numeric: true }));
+    for (const f of art) {
+      const kind = kindFromName(f.originalname);
+      addArtwork(db, id, f.filename, kind === "cover" && cover ? "booklet" : kind);
+    }
     return id;
   })();
   res.json({ id: albumId, tracks: sorted.length });

@@ -233,6 +233,7 @@ async function openAlbum(id, pane = "tracks") {
         </li>`).join("")}
     </ol>
     ${a.credits ? `<div class="credits-note"><strong>Credits</strong>\n${esc(a.credits)}</div>` : ""}
+    <div id="artwork" class="artwork-block"></div>
     <div class="rights-note">
       <p class="eyebrow">${a.demo ? `On a ${gbp(config.albumPrice)} sale (demo copies are free)` : `Where your ${gbp(config.albumPrice)} goes`}</p>
       <div><span>Recording · ${esc(a.masterHolder)}</span><strong>${gbp(a.split.recording)}</strong></div>
@@ -260,6 +261,7 @@ async function openAlbum(id, pane = "tracks") {
   document.body.style.overflow = "hidden";
   if (pane === "room") loadRoom(a);
   if (pane === "market") loadMarket(a);
+  loadArtwork(a);
 }
 
 function switchPane(pane) {
@@ -330,6 +332,68 @@ async function loadRoom(a) {
     } catch (err) { toast(err.message); }
   });
 }
+
+/* ---------- Artwork ---------- */
+
+const fmtBytes = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} KB`);
+let artworkList = [];
+
+async function loadArtwork(a) {
+  artworkList = await api(`/api/albums/${a.id}/artwork`);
+  const el = $("#artwork");
+  if (!el) return;
+  if (!artworkList.length && !a.isMine) return (el.innerHTML = "");
+  const locked = artworkList.filter((x) => x.locked).length;
+  el.innerHTML = `
+    <div class="artwork-head">
+      <p class="eyebrow">Artwork · ${plural(artworkList.length, "piece")}</p>
+      ${a.isMine ? `<label class="btn btn-small">Add artwork<input type="file" id="add-artwork" accept="image/*" multiple hidden /></label>` : ""}
+    </div>
+    <div class="artwork-grid">${artworkList.map((x, i) => x.locked
+      ? `<div class="art-tile locked"><span>🔒</span><small>${esc(x.title)}</small></div>`
+      : `<button class="art-tile" data-art="${i}" aria-label="View ${esc(x.title)}"><img src="${x.url}" alt="${esc(x.title)}" loading="lazy" /><small>${esc(x.title)}</small></button>`).join("")}
+    </div>
+    <p class="muted small">${locked
+      ? `The full package (${plural(locked, "more piece")}) comes with every copy, at full resolution.`
+      : artworkList.length ? "Full resolution, yours to download. Each image's fingerprint is recorded in your copy's NFT." : "Add a back cover, booklet pages or inserts. Fans get them with every copy."}</p>`;
+  $("#add-artwork")?.addEventListener("change", async (e) => {
+    const body = new FormData();
+    for (const f of e.target.files) body.append("artwork", f);
+    toast("Uploading artwork…");
+    try {
+      const r = await api(`/api/albums/${a.id}/artwork`, { method: "POST", body });
+      toast(`Added ${plural(r.added, "image")}`);
+      catalogue = await api("/api/albums");
+      loadArtwork(a);
+    } catch (err) { toast(err.message); }
+  });
+}
+
+function openArtwork(i) {
+  const x = artworkList[i];
+  if (!x) return;
+  const lb = $("#lightbox");
+  lb.innerHTML = `
+    <button class="lb-close" data-lb-close aria-label="Close">✕</button>
+    ${i > 0 ? `<button class="lb-nav prev" data-lb="${i - 1}" aria-label="Previous">‹</button>` : ""}
+    ${i < artworkList.length - 1 && !artworkList[i + 1].locked ? `<button class="lb-nav next" data-lb="${i + 1}" aria-label="Next">›</button>` : ""}
+    <img src="${x.url}" alt="${esc(x.title)}" />
+    <div class="lb-bar">
+      <span><strong>${esc(x.title)}</strong><br /><span class="muted small">${x.width ? `${x.width}×${x.height} · ` : ""}${fmtBytes(x.bytes)}${x.ipfs ? ` · <a href="${x.ipfs}" target="_blank" rel="noopener">IPFS ↗</a>` : ""}</span></span>
+      <a class="btn btn-primary" href="${x.url}?download=1">Download</a>
+    </div>`;
+  lb.hidden = false;
+}
+$("#lightbox").addEventListener("click", (e) => {
+  const nav = e.target.closest("[data-lb]");
+  if (nav) return openArtwork(Number(nav.dataset.lb));
+  if (e.target.closest("[data-lb-close]") || e.target.id === "lightbox") $("#lightbox").hidden = true;
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#lightbox").hidden) { e.stopImmediatePropagation(); $("#lightbox").hidden = true; } }, true);
+$("#sheet").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-art]");
+  if (t) openArtwork(Number(t.dataset.art));
+});
 
 /* ---------- Trading ---------- */
 
@@ -882,6 +946,10 @@ async function artist() {
           <input name="audio" type="file" accept="audio/*" multiple required />
         </label>
         <ol class="file-list" id="file-list"></ol>
+        <label class="drop" style="margin-top:14px">
+          <span><strong>More artwork</strong><br />Back cover, booklet pages, inserts. Full resolution, optional. Name a file "back" for the back cover</span>
+          <input name="artwork" type="file" accept="image/*" multiple />
+        </label>
         <label style="margin-top:14px">Credits <textarea name="credits" rows="3" placeholder="Written by…, produced by…, samples or AI tools used…"></textarea></label>
         <fieldset class="splits">
           <legend>Royalty splits</legend>

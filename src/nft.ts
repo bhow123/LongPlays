@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Contract, ContractFactory, JsonRpcProvider, Wallet, formatEther } from "ethers";
 import type { DB } from "./db.js";
+import { listArtwork } from "./artwork.js";
 
 // Each numbered copy is minted as an NFT on Base Sepolia (a free test network).
 // The database stays the source of truth: a background worker keeps the chain in step with it,
@@ -61,17 +62,34 @@ export function tokenMetadata(db: DB, tokenId: number) {
     .get(tokenId) as { number: number; albumId: number; title: string; artist: string; demo: number; hasCover: number } | undefined;
   if (!c) return null;
   const no = `#${String(c.number).padStart(4, "0")}`;
+  // The full-resolution artwork that comes with the copy. Each file's SHA-256 is fixed here,
+  // so the token proves which images belong to it even if they move to other storage.
+  const art = listArtwork(db, c.albumId).map((a) => ({
+    kind: a.kind,
+    title: a.title,
+    uri: a.ipfsCid ? `ipfs://${a.ipfsCid}` : `${PUBLIC_URL}/api/artwork/${a.id}`,
+    mime: a.mime,
+    width: a.width,
+    height: a.height,
+    bytes: a.bytes,
+    sha256: a.sha256,
+    ownersOnly: a.kind !== "cover",
+  }));
+  const front = art.find((a) => a.kind === "cover");
   return {
     name: `${c.title} ${no}`,
     description: `Copy ${no} of "${c.title}" by ${c.artist} on OwnMusic. It plays in full for whoever owns it and can only change hands on the OwnMusic market.${c.demo ? " This is a demo release." : ""}`,
-    image: c.hasCover ? `${PUBLIC_URL}/api/albums/${c.albumId}/cover` : `${PUBLIC_URL}/icons/icon-512.png`,
+    image: front?.uri ?? (c.hasCover ? `${PUBLIC_URL}/api/albums/${c.albumId}/cover` : `${PUBLIC_URL}/icons/icon-512.png`),
     external_url: `${PUBLIC_URL}/`,
     attributes: [
       { trait_type: "Artist", value: c.artist },
       { trait_type: "Album", value: c.title },
       { trait_type: "Copy number", value: c.number, display_type: "number" },
+      { trait_type: "Artwork pieces", value: art.length, display_type: "number" },
+      ...(front?.width ? [{ trait_type: "Cover resolution", value: `${front.width}×${front.height}` }] : []),
       ...(c.demo ? [{ trait_type: "Demo", value: "Yes" }] : []),
     ],
+    properties: { artwork: art },
   };
 }
 

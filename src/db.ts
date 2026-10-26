@@ -143,6 +143,24 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic-v2.db")) {
   if (!copyCols.some((c) => c.name === "token_owner_id")) db.exec(`ALTER TABLE copies ADD COLUMN token_owner_id INTEGER`);
   if (!copyCols.some((c) => c.name === "token_tx")) db.exec(`ALTER TABLE copies ADD COLUMN token_tx TEXT`);
   db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+  // The album package's artwork, at full resolution: cover, back cover, booklet pages, inserts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS artwork (
+      id INTEGER PRIMARY KEY,
+      album_id INTEGER NOT NULL REFERENCES albums(id),
+      position INTEGER NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('cover', 'back', 'booklet', 'insert')),
+      title TEXT NOT NULL,
+      file TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      bytes INTEGER NOT NULL,
+      width INTEGER,
+      height INTEGER,
+      sha256 TEXT NOT NULL,
+      ipfs_cid TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
   // Demo releases are flagged so the UI can label them.
   const artistCols = db.prepare(`PRAGMA table_info(artists)`).all() as { name: string }[];
   if (!artistCols.some((c) => c.name === "demo")) db.exec(`ALTER TABLE artists ADD COLUMN demo INTEGER NOT NULL DEFAULT 0`);

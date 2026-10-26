@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { AUDIO_DIR, type DB } from "./db.js";
+import { addArtwork, type ArtworkKind } from "./artwork.js";
 
 // A clearly labelled demo release, so anyone visiting the demo can try the whole flow:
 // preview, own a copy, see it on their record shelf, and get into the owners' room.
@@ -39,4 +40,22 @@ export function seedDemo(db: DB) {
     post.run(albumId, userId, "perk", "Demo perk: owners #0001 to #0100 would find something extra here, like stems, a lyric sheet or an early ticket link. Only low numbers can read this.", 100);
     post.run(albumId, userId, "post", "Welcome to the owners' room. Only people who own a copy can read and post here. Say hello to the other owners below.", null);
   })();
+}
+
+// The demo album's package: full-resolution front cover, back cover and a booklet page.
+const DEMO_ARTWORK: [string, ArtworkKind][] = [["cover.jpg", "cover"], ["back-cover.jpg", "back"], ["booklet-01.jpg", "booklet"]];
+
+/** Adds the demo artwork once, including to a demo album seeded before artwork existed. */
+export function seedDemoArtwork(db: DB) {
+  const album = db
+    .prepare(`SELECT al.id FROM albums al JOIN artists ar ON ar.id = al.artist_id WHERE ar.demo = 1 ORDER BY al.id LIMIT 1`)
+    .get() as { id: number } | undefined;
+  if (!album || db.prepare(`SELECT 1 FROM artwork WHERE album_id = ?`).get(album.id)) return;
+  for (const [name, kind] of DEMO_ARTWORK) {
+    const source = path.resolve("demo", name);
+    if (!fs.existsSync(source)) continue;
+    const file = `demo-${name}`;
+    fs.copyFileSync(source, path.join(AUDIO_DIR, file));
+    addArtwork(db, album.id, file, kind, kind === "booklet" ? "Booklet page 1" : undefined);
+  }
 }
