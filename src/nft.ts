@@ -81,10 +81,13 @@ export function startNftWorker(db: DB, intervalMs = 4000) {
   const provider = new JsonRpcProvider(RPC_URL);
   const operator = new Wallet(OPERATOR_KEY, provider);
   let busy = false;
+  let lastLogged = "";
   const fail = (e: unknown) => {
     const msg = (e as { shortMessage?: string; message?: string }).shortMessage ?? (e as Error).message ?? String(e);
     setSetting(db, "nft_last_error", `${new Date().toISOString()} ${msg.slice(0, 300)}`);
-    console.error("nft:", msg);
+    // The worker retries every few seconds, so only log an error when it changes.
+    if (msg !== lastLogged) console.error("nft:", msg);
+    lastLogged = msg;
   };
   const tick = async () => {
     if (busy) return;
@@ -114,6 +117,7 @@ export function startNftWorker(db: DB, intervalMs = 4000) {
       await tx.wait();
       db.prepare(`UPDATE copies SET token_owner_id = ?, token_tx = ? WHERE id = ?`).run(c.ownerId, tx.hash, c.id);
       db.prepare(`DELETE FROM settings WHERE key = 'nft_last_error'`).run();
+      lastLogged = "";
     } catch (e) {
       fail(e);
     } finally {
