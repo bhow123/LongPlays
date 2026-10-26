@@ -13,6 +13,7 @@ import { seedDemo, seedDemoArtwork } from "./demo.js";
 import { addArtwork, artworkFile, backfillCovers, kindFromName, listArtwork, pinNextArtwork, ipfsEnabled, ARTWORK_KINDS, type ArtworkKind } from "./artwork.js";
 import { listCopy, cancelListing, listingsFor, takeListing, tradingSummary, RESALE_ARTIST_PERCENT, RESALE_PLATFORM_PERCENT, MIN_RESALE_PENCE } from "./market.js";
 import { nftStatus, startNftWorker, tokenMetadata, walletFor, contractAddress, EXPLORER } from "./nft.js";
+import { sendStored, startStorageSync, storageStatus } from "./storage.js";
 import { addPost, myRooms, ownersAlsoOwn, roomFeed, roomTeaser, shelf } from "./community.js";
 
 const db = openDb();
@@ -28,6 +29,7 @@ if (ipfsEnabled()) {
   }, 10_000);
 }
 startNftWorker(db);
+startStorageSync(db);
 const app = express();
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 const SECRET = process.env.SESSION_SECRET ?? crypto.randomBytes(32).toString("hex");
@@ -119,20 +121,20 @@ app.get("/api/albums", (req, res) => {
   res.json(albums.map((a) => ({ ...a, split: splitRights(ALBUM_PRICE_PENCE, a.publishingPercent), tracks: tracks.all(a.id) })));
 });
 
-app.get("/api/albums/:id/cover", (req, res) => {
+app.get("/api/albums/:id/cover", async (req, res) => {
   const a = db.prepare(`SELECT cover_file FROM albums WHERE id = ?`).get(Number(req.params.id)) as
     | { cover_file: string | null }
     | undefined;
   if (!a?.cover_file) return res.sendStatus(404);
-  res.set("cache-control", "public, max-age=86400").sendFile(path.join(AUDIO_DIR, a.cover_file));
+  await sendStored(db, res, a.cover_file, { cache: "public" });
 });
 
-app.get("/api/tracks/:id/audio", auth, (req, res) => {
+app.get("/api/tracks/:id/audio", auth, async (req, res) => {
   const t = db.prepare(`SELECT audio_file FROM tracks WHERE id = ?`).get(Number(req.params.id)) as
     | { audio_file: string }
     | undefined;
   if (!t) return res.sendStatus(404);
-  res.sendFile(path.join(AUDIO_DIR, t.audio_file));
+  await sendStored(db, res, t.audio_file);
 });
 
 // Anyone can hear a preview; the player stops non-owners after PREVIEW_SECONDS.
@@ -263,15 +265,16 @@ app.get("/api/albums/:id/artwork", (req, res) => {
     }),
   );
 });
-app.get("/api/artwork/:id", (req, res) => {
+app.get("/api/artwork/:id", async (req, res) => {
   const a = artworkFile(db, Number(req.params.id));
   if (!a) return res.sendStatus(404);
   if (a.kind !== "cover" && !canSeePackage(Number(req.signedCookies.uid) || 0, a.albumId)) return res.sendStatus(403);
   const album = db.prepare(`SELECT title FROM albums WHERE id = ?`).get(a.albumId) as { title: string };
-  if (req.query.download) res.attachment(`${album.title} - ${a.title}${path.extname(a.file)}`.replace(/[\\/:*?"<>|]/g, ""));
-  res.set("cache-control", a.kind === "cover" ? "public, max-age=86400" : "private, max-age=86400").sendFile(path.join(AUDIO_DIR, a.file));
+  const downloadName = req.query.download ? `${album.title} - ${a.title}${path.extname(a.file)}`.replace(/[\\/:*?"<>|]/g, "") : undefined;
+  await sendStored(db, res, a.file, { cache: a.kind === "cover" ? "public" : "private", downloadName });
 });
 app.get("/api/nft", (_req, res) => res.json(nftStatus(db)));
+app.get("/api/storage", (_req, res) => res.json(storageStatus(db)));
 app.get("/api/nft/:tokenId", (req, res) => {
   const meta = tokenMetadata(db, Number(req.params.tokenId));
   meta ? res.json(meta) : res.sendStatus(404);
