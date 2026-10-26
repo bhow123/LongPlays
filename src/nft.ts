@@ -114,7 +114,7 @@ export function startNftWorker(db: DB, intervalMs = 4000) {
       let address = contractAddress(db);
       if (!address) {
         if ((await provider.getBalance(operator.address)) === 0n)
-          throw new Error(`operator ${operator.address} has no test ETH yet; fund it from a Base Sepolia faucet`);
+          throw new Error(`operator ${operator.address} has no test ETH yet; fund it from a ${CHAIN_NAME} faucet`);
         const deployed = await new ContractFactory(artifact.abi, artifact.bytecode, operator).deploy(`${PUBLIC_URL}/api/nft/`);
         await deployed.waitForDeployment();
         address = await deployed.getAddress();
