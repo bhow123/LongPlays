@@ -127,6 +127,8 @@ npm run dev                              # restarts on file changes
 | `PINATA_JWT` | unset | Pinata API token. When set, album covers are pinned to IPFS and the NFT `image` becomes `ipfs://<cid>` |
 | `PINATA_URL` | `https://api.pinata.cloud` | Pinata API base (for testing against a mock) |
 | `PIN_ALL_ARTWORK` | unset | `1` also pins the owners-only pieces. Anything on IPFS is public, so this makes the whole package downloadable by anyone with the CID |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | unset | Cloudflare R2 storage. When all are set, every track and image is copied to the (private) bucket in the background, and plays and downloads redirect to a signed R2 link valid for an hour, after the app's own access checks. R2 doesn't charge for downloads. Local copies stay on disk as a backup |
+| `R2_ENDPOINT` | `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com` | Override the S3 endpoint (for tests or another S3-compatible store) |
 
 ## Architecture
 
@@ -205,6 +207,7 @@ SQLite tables, defined in [`src/db.ts`](src/db.ts):
 | `listings` | Copies on the market: `kind` `sell` or `swap`, and `price_pence` (the price, or the top-up for a swap). One per copy |
 | `trades` | Completed trades, with the price and the artist, platform and seller amounts. `swapped_copy_id` is the copy the buyer gave in a swap |
 | `settings` | Key/value, e.g. the deployed NFT contract address |
+| `remote_files` | Files copied to R2, with the local size and modified time at copy time, so a file changed in place is copied again |
 | `artwork` | The album package's images at full resolution: `kind` (`cover`, `back`, `booklet`, `insert`), position, title, file, MIME type, bytes, width, height, `sha256` and `ipfs_cid` once pinned |
 
 Copies also have `first_owner_id` (set when a copy first changes hands, so the original sale stays attributable), `token_owner_id` (the fan whose wallet holds the token on chain, as far as the minter has synced) and `token_tx`.
@@ -240,6 +243,7 @@ JSON in and out. "Auth" means it needs the session cookie from `/api/login`.
 | `POST /api/albums/:id/listing` `{kind, price}` / `DELETE` | ✓ owner | List your copy (`sell` or `swap`, price in pence) or take it off the market |
 | `POST /api/listings/:id/take` | ✓ | Buy a listed copy, or swap yours for it (`{kind, number, gaveNumber, price}`) |
 | `GET /api/nft` | | Whether minting is on, the chain, contract, operator address, copies waiting to sync and the last error |
+| `GET /api/storage` | | Whether R2 is on, the bucket, and how many files are copied |
 | `GET /api/nft/:tokenId` | | ERC-721 metadata for a copy (the contract's `tokenURI`) |
 | `POST /api/subscription` / `DELETE /api/subscription` | ✓ | Subscribe or cancel |
 | `GET /api/payouts?month=YYYY-MM` | | Per-artist sales, VAT, artist and platform amounts, plus money held for unspent credits |
@@ -257,6 +261,7 @@ The demo runs on **Railway**:
 - `package.json` pins `"engines": { "node": "22.x" }`. Railway's default Node 20 crashes on start.
 - If a push doesn't start a deploy, trigger one from the Railway dashboard.
 - NFTs: `NFT_OPERATOR_KEY` is set on the service. The live demo uses Ethereum Sepolia (`NFT_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com`, `NFT_EXPLORER=https://sepolia.etherscan.io`, `NFT_CHAIN_NAME=Sepolia (testnet)`), because its faucets are easier to use without a wallet (for example Google Cloud's Web3 faucet). The operator address (shown at `/api/nft`) needs free test ETH. Once it has some, the server deploys the contract and mints every copy, oldest first.
+- Storage: with the `R2_*` variables set, uploads still land on the `/data` volume first and are then copied to the `longplays` R2 bucket, which serves all plays and downloads. The bucket stays private; create an R2 API token with Object Read & Write on that bucket only.
 
 - Custom domains `longplays.app` and `www.longplays.app` point at the service with CNAMEs in Cloudflare (DNS only, not proxied), so Railway issues the certificates.
 
