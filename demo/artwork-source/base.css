@@ -1,0 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@500;700&family=Caveat:wght@600;700&display=swap');
+*{box-sizing:border-box;margin:0}
+html,body{width:1000px;height:1000px;overflow:hidden}
+body{font-family:'Space Grotesk',sans-serif;background:#e9e2d4;color:#16131a;position:relative}
+.grain{position:absolute;inset:0;z-index:-1;background:repeating-radial-gradient(circle at 50% 50%,rgba(0,0,0,.018) 0 1px,transparent 1px 3px);pointer-events:none}
+.mono{font-family:'JetBrains Mono',monospace}
+.hand{font-family:'Caveat',cursive}
+.demo{position:absolute;background:#ffd23f;color:#16131a;font:700 26px 'JetBrains Mono',monospace;letter-spacing:.2em;padding:12px 22px;outline:4px dashed #16131a;outline-offset:-10px;transform:rotate(-6deg);box-shadow:0 10px 30px rgba(0,0,0,.25)}

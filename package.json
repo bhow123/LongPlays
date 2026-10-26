@@ -1,0 +1,36 @@
+{
+  "name": "longplays",
+  "version": "1.0.0",
+  "description": "Open-source proof of concept: own albums, not rentals. £5 an album, or £10/month for 2, with 90% going to the artist.",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc",
+    "verify-artist": "tsx src/verify-artist.ts",
+    "contract:compile": "tsx scripts/compile-contract.ts"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "cookie-parser": "^1.4.7",
+    "ethers": "^6.17.0",
+    "express": "^5.3.0",
+    "multer": "^2.5.0"
+  },
+  "devDependencies": {
+    "@openzeppelin/contracts": "^5.4.0",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.3.0",
+    "@types/node": "^26.6.5",
+    "solc": "^0.8.28",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  }
+}
