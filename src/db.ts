@@ -164,6 +164,9 @@ export function openDb(file = path.join(DATA_DIR, "ownmusic-v2.db")) {
   `);
   // Files copied to Cloudflare R2, with the local size and modified time they were copied at.
   db.exec(`CREATE TABLE IF NOT EXISTS remote_files (file TEXT PRIMARY KEY, bytes INTEGER NOT NULL, mtime INTEGER NOT NULL, uploaded_at TEXT NOT NULL DEFAULT (datetime('now')))`);
+  // Replies: a post with parent_id answers that (top-level) post in the same room.
+  const postCols = db.prepare(`PRAGMA table_info(posts)`).all() as { name: string }[];
+  if (!postCols.some((c) => c.name === "parent_id")) db.exec(`ALTER TABLE posts ADD COLUMN parent_id INTEGER REFERENCES posts(id)`);
   // Demo releases are flagged so the UI can label them.
   const artistCols = db.prepare(`PRAGMA table_info(artists)`).all() as { name: string }[];
   if (!artistCols.some((c) => c.name === "demo")) db.exec(`ALTER TABLE artists ADD COLUMN demo INTEGER NOT NULL DEFAULT 0`);

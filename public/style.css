@@ -391,6 +391,15 @@ a.avatar { text-decoration: none; }
 .post.perk.locked { border-style: dashed; background: var(--surface); color: var(--muted); }
 .post.party { display: grid; grid-template-columns: 62px 1fr; gap: 14px; align-items: start; border-color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 12%, var(--surface)); }
 .post.party .post-head { font-weight: 600; }
+.post .thread { grid-column: 1 / -1; margin-top: 8px; }
+.replies { list-style: none; margin: 4px 0 6px; padding: 0 0 0 12px; border-left: 2px solid var(--line); display: grid; gap: 8px; }
+.reply p { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.reply .post-head { font-size: 0.86rem; }
+.link-btn { background: none; border: 0; padding: 4px 0; color: var(--muted); font: inherit; cursor: pointer; }
+.link-btn:hover { color: var(--fg); text-decoration: underline; }
+.reply-form { display: grid; gap: 6px; margin-top: 6px; }
+.reply-form textarea { width: 100%; margin: 0; background: var(--bg); }
+.reply-actions { display: flex; justify-content: flex-end; gap: 12px; align-items: center; }
 .party-date { display: grid; justify-items: center; padding: 8px 0; border-radius: 12px; background: var(--accent-2); color: #fff; }
 .party-date span { font: 700 0.7rem var(--mono); text-transform: uppercase; letter-spacing: 0.1em; }
 .party-date strong { font-size: 1.6rem; line-height: 1; }

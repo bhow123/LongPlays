@@ -97,3 +97,44 @@ test("my rooms covers albums I own and albums I made", () => {
   const rooms = myRooms(db, ben.uid) as { title: string }[];
   assert.deepEqual(rooms.map((r) => r.title).sort(), ["Bought", "Mine"]);
 });
+
+test("owners can reply to posts; replies thread under the top-level post", () => {
+  const { db, user, artist, album } = setup();
+  const ben = artist("Ben");
+  const lp = album(ben.id), other = album(ben.id, "Other");
+  const a = user("a"), b = user("b"), outsider = user("outsider");
+  buyAlbum(db, a, lp);
+  buyAlbum(db, b, lp);
+  const post = addPost(db, a, lp, { body: "Favourite track?" });
+  const r1 = addPost(db, b, lp, { body: "Track 2", parentId: post });
+  addPost(db, ben.uid, lp, { body: "Mine too", parentId: r1, kind: "perk" });
+  assert.throws(() => addPost(db, outsider, lp, { body: "hi", parentId: post }), /own a copy/);
+  const elsewhere = addPost(db, ben.uid, other, { body: "Other room" });
+  assert.throws(() => addPost(db, a, lp, { body: "x", parentId: elsewhere }), /isn't in this room/);
+
+  const feed = roomFeed(db, a, lp)!;
+  assert.equal(feed.posts.length, 1);
+  assert.equal(feed.posts[0].replyCount, 2);
+  assert.deepEqual(feed.posts[0].replies.map((r) => [r.author, r.body, r.kind, r.parentId]), [
+    ["b", "Track 2", "post", post],
+    ["Ben", "Mine too", "post", post],
+  ]);
+  assert.equal(feed.posts[0].replies[1].byArtist, true);
+});
+
+test("replies to a perk stay locked with it", () => {
+  const { db, user, artist, album } = setup();
+  const ben = artist("Ben");
+  const lp = album(ben.id);
+  const early = user("early"), late = user("late");
+  buyAlbum(db, early, lp);
+  buyAlbum(db, late, lp);
+  const perk = addPost(db, ben.uid, lp, { body: "Presale code", kind: "perk", maxNumber: 1 });
+  addPost(db, early, lp, { body: "Thanks!", parentId: perk });
+  assert.throws(() => addPost(db, late, lp, { body: "me too?", parentId: perk }), /lower copy numbers/);
+  const lateView = roomFeed(db, late, lp)!.posts[0];
+  assert.equal(lateView.locked, true);
+  assert.equal(lateView.replyCount, 1);
+  assert.deepEqual(lateView.replies, []);
+  assert.equal(roomFeed(db, early, lp)!.posts[0].replies[0].body, "Thanks!");
+});

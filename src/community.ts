@@ -13,12 +13,25 @@ export function roomAccess(db: DB, userId: number, albumId: number): RoomAccess 
   return { canRead: isArtist || !!copy, isArtist, myNumber: copy?.number ?? null };
 }
 
-export type NewPost = { body: string; kind?: "post" | "perk" | "party"; maxNumber?: number | null; startsAt?: string | null };
+export type NewPost = { body: string; kind?: "post" | "perk" | "party"; maxNumber?: number | null; startsAt?: string | null; parentId?: number | null };
 
 export function addPost(db: DB, userId: number, albumId: number, post: NewPost) {
   const access = roomAccess(db, userId, albumId);
   if (!access.canRead) throw new Error("own a copy to join this room");
-  const kind = post.kind ?? "post";
+  // Replies hang off a top-level post in the same room; replying to a reply joins the same thread.
+  let parentId: number | null = null;
+  if (post.parentId) {
+    const parent = db.prepare(`SELECT id, album_id, parent_id, kind, max_number FROM posts WHERE id = ?`).get(post.parentId) as
+      | { id: number; album_id: number; parent_id: number | null; kind: string; max_number: number | null }
+      | undefined;
+    if (!parent || parent.album_id !== albumId) throw new Error("that post isn't in this room");
+    parentId = parent.parent_id ?? parent.id;
+    const top = parent.parent_id
+      ? (db.prepare(`SELECT kind, max_number FROM posts WHERE id = ?`).get(parentId) as { kind: string; max_number: number | null })
+      : parent;
+    if (perkLocked(access, top.kind, top.max_number)) throw new Error("that perk is only for lower copy numbers");
+  }
+  const kind = parentId ? "post" : post.kind ?? "post";
   if (kind !== "post" && !access.isArtist) throw new Error("only the artist can post perks and listening parties");
   const body = post.body.trim().slice(0, 2000);
   if (!body) throw new Error("write something first");
@@ -27,13 +40,16 @@ export function addPost(db: DB, userId: number, albumId: number, post: NewPost) 
   if (kind === "party" && !startsAt) throw new Error("listening parties need a start time");
   return Number(
     db
-      .prepare(`INSERT INTO posts (album_id, user_id, kind, body, max_number, starts_at) VALUES (?, ?, ?, ?, ?, ?)`)
-      .run(albumId, userId, kind, body, maxNumber, startsAt).lastInsertRowid,
+      .prepare(`INSERT INTO posts (album_id, user_id, kind, body, max_number, starts_at, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(albumId, userId, kind, body, maxNumber, startsAt, parentId).lastInsertRowid,
   );
 }
 
+const perkLocked = (access: RoomAccess, kind: string, maxNumber: number | null) =>
+  kind === "perk" && maxNumber !== null && !access.isArtist && (access.myNumber === null || access.myNumber > maxNumber);
+
 /**
- * The room's feed, newest first. Each author shows with their copy number, so you can see
+ * The room's feed, newest first, each post with its replies oldest first. Each author shows with their copy number, so you can see
  * who was there early. A perk limited to low numbers stays locked for everyone else.
  */
 export function roomFeed(db: DB, userId: number, albumId: number) {
@@ -41,23 +57,31 @@ export function roomFeed(db: DB, userId: number, albumId: number) {
   if (!access.canRead) return null;
   const rows = db
     .prepare(
-      `SELECT p.id, p.kind, p.body, p.max_number AS maxNumber, p.starts_at AS startsAt, p.created_at AS createdAt,
+      `SELECT p.id, p.parent_id AS parentId, p.kind, p.body, p.max_number AS maxNumber, p.starts_at AS startsAt, p.created_at AS createdAt,
               u.name AS author, c.number AS authorNumber,
               (ar.user_id = p.user_id) AS byArtist, ar.name AS artistName
        FROM posts p JOIN users u ON u.id = p.user_id
        JOIN albums al ON al.id = p.album_id JOIN artists ar ON ar.id = al.artist_id
        LEFT JOIN copies c ON c.album_id = p.album_id AND c.owner_id = p.user_id
-       WHERE p.album_id = ? ORDER BY p.id DESC LIMIT 200`,
+       WHERE p.album_id = ? AND (p.parent_id IS NULL OR p.parent_id IN (SELECT id FROM posts WHERE album_id = ? AND parent_id IS NULL ORDER BY id DESC LIMIT 200))
+       ORDER BY p.id DESC LIMIT 1200`,
     )
-    .all(albumId) as {
-    id: number; kind: string; body: string; maxNumber: number | null; startsAt: string | null; createdAt: string;
+    .all(albumId, albumId) as {
+    id: number; parentId: number | null; kind: string; body: string; maxNumber: number | null; startsAt: string | null; createdAt: string;
     author: string; authorNumber: number | null; byArtist: number; artistName: string;
   }[];
-  const posts = rows.map((p) => {
-    const locked =
-      p.kind === "perk" && p.maxNumber !== null && !access.isArtist && (access.myNumber === null || access.myNumber > p.maxNumber);
-    return { ...p, byArtist: !!p.byArtist, author: p.byArtist ? p.artistName : p.author, locked, body: locked ? null : p.body };
-  });
+  const shape = (p: (typeof rows)[number]) => ({ ...p, byArtist: !!p.byArtist, author: p.byArtist ? p.artistName : p.author });
+  const replies = new Map<number, ReturnType<typeof shape>[]>();
+  for (const r of [...rows].reverse()) if (r.parentId) replies.set(r.parentId, [...(replies.get(r.parentId) ?? []), shape(r)]);
+  const posts = rows
+    .filter((p) => !p.parentId)
+    .slice(0, 200)
+    .map((p) => {
+      const locked = perkLocked(access, p.kind, p.maxNumber);
+      const thread = replies.get(p.id) ?? [];
+      // Replies under a locked perk stay hidden along with it; only the count shows.
+      return { ...shape(p), locked, body: locked ? null : p.body, replyCount: thread.length, replies: locked ? [] : thread };
+    });
   return { ...access, posts };
 }
 
@@ -120,7 +144,7 @@ export function myRooms(db: DB, userId: number) {
               (ar.user_id = ?) AS isArtist,
               (SELECT COUNT(*) FROM copies WHERE album_id = al.id) AS owners,
               (SELECT COUNT(*) FROM posts WHERE album_id = al.id) AS posts,
-              (SELECT body FROM posts WHERE album_id = al.id AND kind = 'post' ORDER BY id DESC LIMIT 1) AS lastBody,
+              (SELECT body FROM posts WHERE album_id = al.id AND kind = 'post' AND parent_id IS NULL ORDER BY id DESC LIMIT 1) AS lastBody,
               (SELECT created_at FROM posts WHERE album_id = al.id ORDER BY id DESC LIMIT 1) AS lastAt
        FROM albums al JOIN artists ar ON ar.id = al.artist_id
        WHERE ar.verified = 1 AND (ar.user_id = ? OR EXISTS (SELECT 1 FROM copies WHERE album_id = al.id AND owner_id = ?))
