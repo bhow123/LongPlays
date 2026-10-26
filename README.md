@@ -203,7 +203,7 @@ SQLite tables, defined in [`src/db.ts`](src/db.ts):
 | `credit_ledger` | +2 for each billed month and −1 for each album bought with a credit. The balance is the sum |
 | `payments` | Money in: `subscription` (£10) and `album` (£5 cash purchases) |
 | `plays` | Owners' listens, for play counts |
-| `posts` | Owners' room posts: `kind` is `post`, `perk` (with optional `max_number`) or `party` (with `starts_at`) |
+| `posts` | Owners' room posts: `kind` is `post`, `perk` (with optional `max_number`) or `party` (with `starts_at`). `parent_id` makes a post a reply to a top-level post |
 | `listings` | Copies on the market: `kind` `sell` or `swap`, and `price_pence` (the price, or the top-up for a swap). One per copy |
 | `trades` | Completed trades, with the price and the artist, platform and seller amounts. `swapped_copy_id` is the copy the buyer gave in a swap |
 | `settings` | Key/value, e.g. the deployed NFT contract address |
@@ -236,7 +236,7 @@ JSON in and out. "Auth" means it needs the session cookie from `/api/login`.
 | `GET /api/fans/:name` | | A fan's record shelf: copies owned, artists backed, and their artist name if they have one |
 | `GET /api/albums/:id/also` | | Albums that this album's owners also own, most shared first |
 | `GET /api/albums/:id/room` | ✓ owner or artist | The owners' room feed (403 with a teaser of owners, posts, perks and the next party otherwise) |
-| `POST /api/albums/:id/room` `{body, kind?, maxNumber?, startsAt?}` | ✓ owner or artist | Post. Only the artist can use `kind` `perk` or `party` |
+| `POST /api/albums/:id/room` `{body, kind?, maxNumber?, startsAt?, parentId?}` | ✓ owner or artist | Post, or reply to a post with `parentId` (a reply to a reply joins the same thread; replying under a perk needs a copy number the perk covers). Only the artist can use `kind` `perk` or `party` |
 | `GET /api/rooms` | ✓ | Rooms you can enter (albums you own or made), with the latest activity |
 | `GET /api/account` | ✓ | Subscription status, credits, total paid, purchases (with token links), trading totals and your wallet address |
 | `GET /api/albums/:id/market` | | Listings for the album, and your own copy, listing and token if you have one |

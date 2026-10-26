@@ -187,12 +187,13 @@ app.get("/api/albums/:id/room", auth, (req, res) => {
 
 app.post("/api/albums/:id/room", auth, (req, res) => {
   try {
-    const { body, kind, maxNumber, startsAt } = req.body ?? {};
+    const { body, kind, maxNumber, startsAt, parentId } = req.body ?? {};
     const id = addPost(db, (req as Authed).user.id, Number(req.params.id), {
       body: String(body ?? ""),
       kind: kind === "perk" || kind === "party" ? kind : "post",
       maxNumber: maxNumber ? Number(maxNumber) : null,
       startsAt: startsAt ? String(startsAt) : null,
+      parentId: parentId ? Number(parentId) : null,
     });
     res.json({ id });
   } catch (e) {

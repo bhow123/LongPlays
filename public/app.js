@@ -319,6 +319,29 @@ async function loadRoom(a) {
     const kind = form.kind?.value ?? "post";
     form.querySelectorAll(".kind-extra").forEach((d) => (d.hidden = d.dataset.for !== kind));
   });
+  const feed = el.querySelector(".feed");
+  feed.addEventListener("click", (e) => {
+    const open = e.target.closest("[data-reply]");
+    const cancel = e.target.closest("[data-reply-cancel]");
+    if (open) {
+      const f = feed.querySelector(`[data-reply-form="${open.dataset.reply}"]`);
+      f.hidden = false;
+      open.hidden = true;
+      f.body.focus();
+    } else if (cancel) {
+      const f = cancel.closest("form");
+      f.hidden = true;
+      feed.querySelector(`[data-reply="${f.dataset.replyForm}"]`).hidden = false;
+    }
+  });
+  feed.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      await api(`/api/albums/${a.id}/room`, { method: "POST", body: { body: f.body.value, parentId: Number(f.dataset.replyForm) } });
+      loadRoom(a);
+    } catch (err) { toast(err.message); }
+  });
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = new FormData(form);
@@ -478,21 +501,42 @@ $("#sheet").addEventListener("click", async (e) => {
 });
 
 function postCard(p) {
-  const who = p.byArtist
+  const who = authorTag(p);
+  let cls = "", inner;
+  if (p.kind === "perk") {
+    cls = `perk ${p.locked ? "locked" : ""}`;
+    inner = `<div class="post-head"><span class="perk-icon">🎁</span> Owner perk${p.maxNumber ? ` · copies ${copyNo(1)}–${copyNo(p.maxNumber)}` : ""} <span class="muted small">· ${timeAgo(p.createdAt)}</span></div>
+      <p>${p.locked ? `🔒 For the first ${p.maxNumber} owners. Low numbers get rewarded.` : esc(p.body)}</p>`;
+  } else if (p.kind === "party") {
+    const d = new Date(p.startsAt);
+    cls = "party";
+    inner = `<div class="party-date"><span>${d.toLocaleDateString("en-GB", { month: "short" })}</span><strong>${d.getDate()}</strong></div>
+      <div><div class="post-head">🎧 Listening party · ${esc(whenParty(p.startsAt))}</div><p>${esc(p.body)}</p>
+      <span class="muted small">Hosted by ${esc(p.author)}</span></div>`;
+  } else {
+    inner = `<div class="post-head">${who} <span class="muted small">· ${timeAgo(p.createdAt)}</span></div><p>${esc(p.body)}</p>`;
+  }
+  return `<li class="post ${cls}">${inner}${thread(p)}</li>`;
+}
+
+function authorTag(p) {
+  return p.byArtist
     ? `<strong>${esc(p.author)}</strong> <span class="badge own">Artist</span>`
     : `${fanLink(p.author)} <span class="badge">${copyNo(p.authorNumber)}</span>`;
-  if (p.kind === "perk")
-    return `<li class="post perk ${p.locked ? "locked" : ""}">
-      <div class="post-head"><span class="perk-icon">🎁</span> Owner perk${p.maxNumber ? ` · copies ${copyNo(1)}–${copyNo(p.maxNumber)}` : ""} <span class="muted small">· ${timeAgo(p.createdAt)}</span></div>
-      <p>${p.locked ? `🔒 For the first ${p.maxNumber} owners. Low numbers get rewarded.` : esc(p.body)}</p></li>`;
-  if (p.kind === "party") {
-    const d = new Date(p.startsAt);
-    return `<li class="post party">
-      <div class="party-date"><span>${d.toLocaleDateString("en-GB", { month: "short" })}</span><strong>${d.getDate()}</strong></div>
-      <div><div class="post-head">🎧 Listening party · ${esc(whenParty(p.startsAt))}</div><p>${esc(p.body)}</p>
-      <span class="muted small">Hosted by ${esc(p.author)}</span></div></li>`;
-  }
-  return `<li class="post"><div class="post-head">${who} <span class="muted small">· ${timeAgo(p.createdAt)}</span></div><p>${esc(p.body)}</p></li>`;
+}
+
+// Replies under a post, oldest first, with a reply box that opens in place.
+function thread(p) {
+  if (p.locked) return p.replyCount ? `<div class="thread"><p class="muted small">🔒 ${plural(p.replyCount, "reply", "replies")}</p></div>` : "";
+  return `<div class="thread">
+    ${p.replies.length ? `<ul class="replies">${p.replies.map((r) => `
+      <li class="reply"><div class="post-head">${authorTag(r)} <span class="muted small">· ${timeAgo(r.createdAt)}</span></div><p>${esc(r.body)}</p></li>`).join("")}</ul>` : ""}
+    <button class="link-btn small" data-reply="${p.id}">Reply</button>
+    <form class="reply-form" data-reply-form="${p.id}" hidden>
+      <textarea name="body" rows="2" maxlength="2000" required placeholder="Reply…"></textarea>
+      <div class="reply-actions"><button type="button" class="link-btn small" data-reply-cancel>Cancel</button><button class="btn btn-primary btn-small">Reply</button></div>
+    </form>
+  </div>`;
 }
 
 function closeSheet() {
